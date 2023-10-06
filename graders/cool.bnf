@@ -1,0 +1,49 @@
+program ::= class_list
+
+class_list ::= class class_list | ε
+
+class ::= class TYPE [ inherits TYPE ] { feature_list }
+
+feature_list ::= feature ; feature_list | ε
+
+feature ::= ID ( formal_list ) : TYPE { expr }
+          | ID : TYPE [ <- expr ]
+
+formal_list ::= formal , formal_list | formal | ε
+
+formal ::= ID : TYPE
+
+expr ::= ID <- expr
+        | IF expr THEN expr ELSE expr FI
+        | WHILE expr LOOP expr POOL
+        | { expr_list }
+        | LET let_bindings IN expr_list END
+        | CASE expr OF case_list ESAC
+        | NEW TYPE
+        | ISVOID expr
+        | expr + expr
+        | expr - expr
+        | expr * expr
+        | expr / expr
+        | ~ expr
+        | expr < expr
+        | expr <= expr
+        | expr = expr
+        | NOT expr
+        | ( expr )
+        | ID
+        | INTEGER
+        | STRING
+        | true
+        | false
+
+case_list ::= branch case_list | ε
+
+branch ::= ID : TYPE => expr
+
+let_bindings ::= let_binding , let_bindings | let_binding
+
+let_binding ::= ID : TYPE [ <- expr ]
+              | ID : TYPE
+
+expr_list ::= expr ; expr_list | expr ; | ε

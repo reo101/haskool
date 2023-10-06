@@ -1,0 +1,126 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.35.2.
+--
+-- see: https://github.com/sol/hpack
+
+name:           haskool
+version:        0.1.0.0
+synopsis:       Haskell COOL compiler
+description:    See https://hackage.haskell.org/package/haskool/docs/Haskool.html
+author:         reo101
+maintainer:     reo101
+copyright:      2023 reo101
+license:        MIT
+license-file:   LICENSE
+build-type:     Simple
+
+library
+  exposed-modules:
+      Haskool
+      Lexer
+      Regex.Atto
+  other-modules:
+      Paths_haskool
+  hs-source-dirs:
+      lib
+  default-extensions:
+      BlockArguments
+      DataKinds
+      DeriveAnyClass
+      DerivingStrategies
+      ExplicitForAll
+      ExplicitNamespaces
+      LambdaCase
+      MultiWayIf
+      OverloadedRecordDot
+      OverloadedStrings
+      RecordWildCards
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeFamilies
+      UndecidableInstances
+      UnicodeSyntax
+      ViewPatterns
+  ghc-options: -Wall -Wunused-type-patterns -Wunused-packages -Wmissing-deriving-strategies -Wredundant-constraints -Widentities -Wmissing-export-lists -Wno-name-shadowing
+  build-depends:
+      attoparsec
+    , base ==4.*
+    , comonad
+    , comonad-extras
+    , containers
+    , fixed-vector
+    , lens
+    , mtl
+    , regex-tdfa
+    , text
+    , utility-ht
+    , validation
+  default-language: GHC2021
+
+executable haskool
+  main-is: Main.hs
+  other-modules:
+      Paths_haskool
+  hs-source-dirs:
+      app
+  default-extensions:
+      BlockArguments
+      DataKinds
+      DeriveAnyClass
+      DerivingStrategies
+      ExplicitForAll
+      ExplicitNamespaces
+      LambdaCase
+      MultiWayIf
+      OverloadedRecordDot
+      OverloadedStrings
+      RecordWildCards
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeFamilies
+      UndecidableInstances
+      UnicodeSyntax
+      ViewPatterns
+  ghc-options: -Wall -Wunused-type-patterns -Wunused-packages -Wmissing-deriving-strategies -Wredundant-constraints -Widentities -Wmissing-export-lists -Wno-name-shadowing -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base ==4.*
+    , haskool
+  default-language: GHC2021
+
+test-suite haskool-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Haskool.Test.HaskoolSpec
+      Paths_haskool
+  hs-source-dirs:
+      test
+  default-extensions:
+      BlockArguments
+      DataKinds
+      DeriveAnyClass
+      DerivingStrategies
+      ExplicitForAll
+      ExplicitNamespaces
+      LambdaCase
+      MultiWayIf
+      OverloadedRecordDot
+      OverloadedStrings
+      RecordWildCards
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeFamilies
+      UndecidableInstances
+      UnicodeSyntax
+      ViewPatterns
+  ghc-options: -Wall -Wunused-type-patterns -Wunused-packages -Wmissing-deriving-strategies -Wredundant-constraints -Widentities -Wmissing-export-lists -Wno-name-shadowing -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      QuickCheck
+    , base ==4.*
+    , haskool
+    , hspec
+    , hspec-discover
+    , lens-properties
+    , quickcheck-instances
+  default-language: GHC2021
