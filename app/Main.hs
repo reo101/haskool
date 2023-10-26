@@ -2,7 +2,7 @@ module Main (
   main,
 ) where
 
-import qualified Regex
+import qualified Haskool
 
 main :: IO ()
-main = Regex.main
+main = Haskool.main

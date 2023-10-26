@@ -36,5 +36,5 @@ import Test.QuickCheck (
  )
 
 spec :: Spec
-spec = describe "Board should be good" do
+spec = describe "" do
   pure ()

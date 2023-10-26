@@ -1,8 +1,9 @@
 module Haskool (
-  name,
+  main,
 ) where
-import Data.Void (Void)
-import Data.Text (Text)
 
 name :: String
 name = "Haskool"
+
+main :: IO ()
+main = print name

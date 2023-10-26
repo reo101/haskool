@@ -1,49 +1,86 @@
-program ::= class_list
+<program>                 ::= <classes>
 
-class_list ::= class class_list | ε
+<classes>                 ::= <classes> <class> ;
+                          |   <class> ;
 
-class ::= class TYPE [ inherits TYPE ] { feature_list }
+<class>                   ::= class TYPE <inheritance> { <features_list_opt> } ;
 
-feature_list ::= feature ; feature_list | ε
+<inheritance>             ::= inherits TYPE
+                          |   <empty>
 
-feature ::= ID ( formal_list ) : TYPE { expr }
-          | ID : TYPE [ <- expr ]
+<features_list_opt>       ::= <features_list>
+                          |   <empty>
 
-formal_list ::= formal , formal_list | formal | ε
+<features_list>           ::= <features_list> <feature> ;
+                          |   <feature> ;
 
-formal ::= ID : TYPE
+<feature>                 ::= ID ( <formal_params_list_opt> ) : TYPE { <expression> }
+                          |   <formal>
 
-expr ::= ID <- expr
-        | IF expr THEN expr ELSE expr FI
-        | WHILE expr LOOP expr POOL
-        | { expr_list }
-        | LET let_bindings IN expr_list END
-        | CASE expr OF case_list ESAC
-        | NEW TYPE
-        | ISVOID expr
-        | expr + expr
-        | expr - expr
-        | expr * expr
-        | expr / expr
-        | ~ expr
-        | expr < expr
-        | expr <= expr
-        | expr = expr
-        | NOT expr
-        | ( expr )
-        | ID
-        | INTEGER
-        | STRING
-        | true
-        | false
+<formal_params_list_opt>  ::= <formal_params_list>
+                          |   <empty>
 
-case_list ::= branch case_list | ε
+<formal_params_list>      ::= <formal_params_list> , <formal_param>
+                          |   <formal_param>
 
-branch ::= ID : TYPE => expr
+<formal_param>            ::= ID : TYPE
 
-let_bindings ::= let_binding , let_bindings | let_binding
+<formal>                  ::= ID : TYPE <- <expression>
+                          |   ID : TYPE
 
-let_binding ::= ID : TYPE [ <- expr ]
-              | ID : TYPE
+<expression>              ::= ID <- <expr>
+                          |   <expression>.ID( <arguments_list_opt> )
+                          |   <expression><at-type>.ID( <arguments_list_opt> )
+                          |   <case>
+                          |   <if_then_else>
+                          |   <while>
+                          |   <block_expression>
+                          |   <let_expression>
+                          |   new TYPE
+                          |   isvoid <expr>
+                          |   <expression> + <expression>
+                          |   <expression> - <expression>
+                          |   <expression> * <expression>
+                          |   <expression> / <expression>
+                          |   ~ <expression>
+                          |   <expression> < <expression>
+                          |   <expression> <= <expression>
+                          |   <expression> = <expression>
+                          |   not <expression>
+                          |   ( <expression> )
+                          |   SELF
+                          |   ID
+                          |   INTEGER
+                          |   STRING
+                          |   TRUE
+                          |   FALSE
 
-expr_list ::= expr ; expr_list | expr ; | ε
+<arguments_list_opt>      ::= <arguments_list>
+                          |   <empty>
+
+<arguments_list>          ::= <arguments_list_opt> , <expression>
+                          |   <expression>
+
+<case>                    ::= case <expression> of <actions> esac
+
+<action>                  ::= ID : TYPE => <expr>
+
+<actions>                 ::= <action>
+                          |   <action> <actions>
+
+<if_then_else>            ::= if <expression> then <expression> else <expression> fi
+
+<while>                   ::= while <expression> loop <expression> pool
+
+<block_expression>        ::= { <block_list> }
+
+<block_list>              ::= <block_list> <expression> ;
+                          |   <expression> ;
+
+<let_expression>          ::= let <formal> in <expression>
+                          |   <nested_lets> , <formal>
+
+<nested_lets>             ::= <formal> IN <expression>
+                          |   <nested_lets> , <formal>
+
+<empty>                   ::=
