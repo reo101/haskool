@@ -1,3 +1,5 @@
 /dist-newstyle
 /.direnv
 /**/.env
+/graders/bundle
+/graders/tests

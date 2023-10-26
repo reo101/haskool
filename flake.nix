@@ -83,9 +83,13 @@
           enable = true;
           dependencies = [
             "attoparsec"
+            "bifunctors"
             "comonad"
             "comonad-extras"
             "containers"
+            "directory"
+            "extra"
+            "filepath"
             "fixed-vector"
             "lens"
             "mtl"
@@ -107,10 +111,6 @@
             "hspec" # ^>= 2.11"
             "hspec-discover" # ^>= 2.11"
             "lens-properties" # ^>= 4.11"
-            # "hedgehog >= 1.1 && < 1.3"
-            # "hedgehog-quickcheck ^>= 0.1"
-            # "tasty ^>= 1.4"
-            # "tasty-hedgehog >= 1.3 && < 1.5"
           ];
         };
       };

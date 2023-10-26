@@ -1,86 +1,100 @@
-<program>                 ::= <classes>
+<program>                   ::= <classes> <comment>
 
-<classes>                 ::= <classes> <class> ;
-                          |   <class> ;
+<comment>                   ::= <comment_single_line>
+                            |   <comment_multi_line>
 
-<class>                   ::= class TYPE <inheritance> { <features_list_opt> } ;
+<comment_single_line>       ::= '--' <text_single_line> <newline>
 
-<inheritance>             ::= inherits TYPE
-                          |   <empty>
+<comment_multi_line>        ::= '(*' <text_multi_line> '*)'
 
-<features_list_opt>       ::= <features_list>
-                          |   <empty>
+<text_single_line>          ::= <any_character>*
+<text_multi_line>           ::= <any_character_except_asterisk> <text_multi_line>
+                            |   '*' <text_multi_line_asterisk>
 
-<features_list>           ::= <features_list> <feature> ;
-                          |   <feature> ;
+<text_multi_line_asterisk>  ::= <text_multi_line>
+                            |   <empty>
 
-<feature>                 ::= ID ( <formal_params_list_opt> ) : TYPE { <expression> }
-                          |   <formal>
+<classes>                   ::= <classes> <class> ;
+                            |   <class> ;
 
-<formal_params_list_opt>  ::= <formal_params_list>
-                          |   <empty>
+<class>                     ::= class TYPE <inheritance> { <features_list_opt> } ;
 
-<formal_params_list>      ::= <formal_params_list> , <formal_param>
-                          |   <formal_param>
+<inheritance>               ::= inherits TYPE
+                            |   <empty>
 
-<formal_param>            ::= ID : TYPE
+<features_list_opt>         ::= <features_list>
+                            |   <empty>
 
-<formal>                  ::= ID : TYPE <- <expression>
-                          |   ID : TYPE
+<features_list>             ::= <features_list> <feature> ;
+                            |   <feature> ;
 
-<expression>              ::= ID <- <expr>
-                          |   <expression>.ID( <arguments_list_opt> )
-                          |   <expression><at-type>.ID( <arguments_list_opt> )
-                          |   <case>
-                          |   <if_then_else>
-                          |   <while>
-                          |   <block_expression>
-                          |   <let_expression>
-                          |   new TYPE
-                          |   isvoid <expr>
-                          |   <expression> + <expression>
-                          |   <expression> - <expression>
-                          |   <expression> * <expression>
-                          |   <expression> / <expression>
-                          |   ~ <expression>
-                          |   <expression> < <expression>
-                          |   <expression> <= <expression>
-                          |   <expression> = <expression>
-                          |   not <expression>
-                          |   ( <expression> )
-                          |   SELF
-                          |   ID
-                          |   INTEGER
-                          |   STRING
-                          |   TRUE
-                          |   FALSE
+<feature>                   ::= ID ( <formal_params_list_opt> ) : TYPE { <expression> }
+                            |   <formal>
 
-<arguments_list_opt>      ::= <arguments_list>
-                          |   <empty>
+<formal_params_list_opt>    ::= <formal_params_list>
+                            |   <empty>
 
-<arguments_list>          ::= <arguments_list_opt> , <expression>
-                          |   <expression>
+<formal_params_list>        ::= <formal_params_list> , <formal_param>
+                            |   <formal_param>
 
-<case>                    ::= case <expression> of <actions> esac
+<formal_param>              ::= ID : TYPE
 
-<action>                  ::= ID : TYPE => <expr>
+<formal>                    ::= ID : TYPE <- <expression>
+                            |   ID : TYPE
 
-<actions>                 ::= <action>
-                          |   <action> <actions>
+<expression>                ::= ID <- <expr>
+                            |   <expression>.ID( <arguments_list_opt> )
+                            |   <expression><at-type>.ID( <arguments_list_opt> )
+                            |   <case>
+                            |   <if_then_else>
+                            |   <while>
+                            |   <block_expression>
+                            |   <let_expression>
+                            |   new TYPE
+                            |   isvoid <expr>
+                            |   <expression> + <expression>
+                            |   <expression> - <expression>
+                            |   <expression> * <expression>
+                            |   <expression> / <expression>
+                            |   ~ <expression>
+                            |   <expression> < <expression>
+                            |   <expression> <= <expression>
+                            |   <expression> = <expression>
+                            |   not <expression>
+                            |   ( <expression> )
+                            |   SELF
+                            |   ID
+                            |   INTEGER
+                            |   STRING
+                            |   TRUE
+                            |   FALSE
 
-<if_then_else>            ::= if <expression> then <expression> else <expression> fi
+<arguments_list_opt>        ::= <arguments_list>
+                            |   <empty>
 
-<while>                   ::= while <expression> loop <expression> pool
+<arguments_list>            ::= <arguments_list_opt> , <expression>
+                            |   <expression>
 
-<block_expression>        ::= { <block_list> }
+<case>                      ::= case <expression> of <actions> esac
 
-<block_list>              ::= <block_list> <expression> ;
-                          |   <expression> ;
+<action>                    ::= ID : TYPE => <expr>
 
-<let_expression>          ::= let <formal> in <expression>
-                          |   <nested_lets> , <formal>
+<actions>                   ::= <action>
+                            |   <action> <actions>
 
-<nested_lets>             ::= <formal> IN <expression>
-                          |   <nested_lets> , <formal>
+<if_then_else>              ::= if <expression> then <expression> else <expression> fi
 
-<empty>                   ::=
+<while>                     ::= while <expression> loop <expression> pool
+
+<block_expression>          ::= { <block_list> }
+
+<block_list>                ::= <block_list> <expression> ;
+                            |   <expression> ;
+
+<let_expression>            ::= let <formal> in <expression>
+                            |   <nested_lets> , <formal>
+
+<nested_lets>               ::= <formal> IN <expression>
+                            |   <nested_lets> , <formal>
+
+<empty>                     ::=

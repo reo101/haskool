@@ -19,7 +19,10 @@ library
   exposed-modules:
       Haskool
       Lexer
+      Lexer.Old
       Regex.Atto
+      Utils.FS
+      Utils.Pretty
   other-modules:
       Paths_haskool
   hs-source-dirs:
@@ -46,9 +49,13 @@ library
   build-depends:
       attoparsec
     , base ==4.*
+    , bifunctors
     , comonad
     , comonad-extras
     , containers
+    , directory
+    , extra
+    , filepath
     , fixed-vector
     , lens
     , mtl
