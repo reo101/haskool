@@ -75,7 +75,7 @@ TYPEID					[A-Z][a-zA-Z0-9_]*
 
 OBJECTID				[a-z][a-zA-Z0-9_]*
 
-DARROW          =>
+DARROW					=>
 
 LE							<=
 
@@ -163,7 +163,7 @@ INVALID					[^a-zA-Z0-9_ \f\r\t\v\n+/\-*=<.~,;:()@{}]
 
 {WHITESPACE}	{}
 
-NEWLINE}			{ curr_lineno++; }
+{NEWLINE}			{ curr_lineno++; }
 
 {SYMBOLS}			{ return int(yytext[0]); }
 
