@@ -3,24 +3,60 @@ module Utils.Pretty (
   prettyPrintToken,
 ) where
 
+import Control.Lens (Field1 (_1), Field2 (_2), (%=), (^.), (+=))
+import Control.Monad.State (MonadState (..), State, evalState)
+import Data.Char (toLower)
+import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Lexer (Token (..), lexer)
-import Text.Printf (printf)
 import System.FilePath.Lens (filename)
-import Control.Lens ((^.))
+import Text.Printf (printf)
 
 lexAndPrettyPrint :: (FilePath, T.Text) -> T.Text
 lexAndPrettyPrint (sourceFile, sourceCode) =
-  let tokenss = lexer <$> T.lines sourceCode
-      prettyLines :: [T.Text]
-      prettyLines =
-        zip @Int [1 ..] tokenss >>= \(line, tokens) -> do
-          let numberedTokens = (line,) <$> tokens
-          numberedTokenToPretty <$> numberedTokens
-      header = T.pack $ printf
-        "#name \"%s\""
-        (sourceFile ^. filename)
-   in T.unlines $ header : prettyLines
+  let
+    tokens :: [Token]
+    tokens = lexer sourceCode
+    linenize :: State (Int, [Token]) [T.Text]
+    linenize = do
+      (line, tokens) <- get
+      -- TODO: clean up
+      case listToMaybe tokens of
+        Nothing -> pure []
+        Just token -> do
+          case token of
+            TNewLine -> do
+              _1 %= succ
+              _2 %= tail
+              linenize
+            TComment n -> do
+              _1 += n
+              _2 %= tail
+              linenize
+            TWhitespace -> do
+              _2 %= tail
+              linenize
+            TString n _ -> do
+              _1 += n
+              _2 %= tail
+              (numberedTokenToPretty (line + n, token) :) <$> linenize
+            TError n _ -> do
+              _1 += n
+              _2 %= tail
+              (numberedTokenToPretty (line + n, token) :) <$> linenize
+            _ -> do
+              _2 %= tail
+              (numberedTokenToPretty (line, token) :) <$> linenize
+    prettyLines :: [T.Text]
+    prettyLines = evalState linenize (1, tokens)
+    header :: T.Text
+    header =
+      T.pack $
+        printf
+          "#name \"%s\""
+          (sourceFile ^. filename)
+   in
+    T.unlines $ header : prettyLines
  where
   numberedTokenToPretty :: (Int, Token) -> T.Text
   numberedTokenToPretty (line, token) =
@@ -32,52 +68,36 @@ lexAndPrettyPrint (sourceFile, sourceCode) =
 
 prettyPrintToken :: Token -> String
 prettyPrintToken = \case
-  Kek -> "kek"
-  TInteger num -> printf "INT_CONST %s" num
-  _ -> "LAJNO"
-
--- prettyPrintToken :: Token -> String
--- prettyPrintToken = \case
---   TClass -> "TClass"
---   TType t -> "TType t"
---   TInherits -> "TInherits"
---   TLBrace -> "TLBrace"
---   TRBrace -> "TRBrace"
---   TID i -> printf "OBJECTID %s" i
---   TColon -> "TColon"
---   TSemicolon -> "TSemicolon"
---   TComma -> "TComma"
---   TArrow -> "TArrow"
---   TIf -> "TIf"
---   TThen -> "TThen"
---   TElse -> "TElse"
---   TFi -> "TFi"
---   TWhile -> "TWhile"
---   TLoop -> "TLoop"
---   TPool -> "TPool"
---   TLet -> "TLet"
---   TIn -> "TIn"
---   TEnd -> "TEnd"
---   TCase -> "TCase"
---   TOF -> "TOF"
---   TEsac -> "TEsac"
---   TNew -> "TNew"
---   TIsVoid -> "TIsVoid"
---   TPlus -> "TPlus"
---   TMinus -> "'-'"
---   TMultiply -> "'*'"
---   TDivide -> "'/'"
---   TNegate -> "TNegate"
---   TLess -> "TLess"
---   TLessEqual -> "TLessEqual"
---   TEqual -> "TEqual"
---   TNot -> "TNot"
---   TOpenParen -> "TOpenParen"
---   TCloseParen -> "TCloseParen"
---   TDot -> "TDot"
---   TSelf -> "TSelf"
---   TInteger i -> printf "INT_CONST %s" i
---   TString s -> "TString s"
---   TTrue -> "TTrue"
---   TFalse -> "TFalse"
---   TError e -> "TError e"
+  TInteger i -> printf "INT_CONST %s" i
+  TString _ s -> printf "STR_CONST %s" (show s)
+  -- TComment n -> printf "NZ %s" ("TComment" :: String)
+  -- TEOF -> printf "NZ %s" ("TEOF" :: String)
+  TClass -> printf "CLASS"
+  TIf -> printf "IF"
+  TThen -> printf "THEN"
+  TElse -> printf "ELSE"
+  TFi -> printf "FI"
+  TInherits -> printf "INHERITS"
+  TIsVoid -> printf "ISVOID"
+  TLet -> printf "LET"
+  TIn -> printf "IN"
+  TWhile -> printf "WHILE"
+  TLoop -> printf "LOOP"
+  TPool -> printf "POOL"
+  TCase -> printf "CASE"
+  TEsac -> printf "ESAC"
+  TNew -> printf "NEW"
+  TOf -> printf "OF"
+  TNot -> printf "NOT"
+  TBool p -> printf "BOOL_CONST %s" (T.pack $ toLower <$> show p)
+  TTypeId i -> printf "TYPEID %s" i
+  TObjectId i -> printf "OBJECTID %s" i
+  TDArrow -> printf "DArrow"
+  TLessEqual -> printf "NZ %s" ("TLessEqual" :: String)
+  TAssign -> printf "ASSIGN"
+  TWhitespace -> printf "NZ %s" ("TWhitespace" :: String)
+  -- TNewLine -> printf "NZ %s" ("TNewLine" :: String)
+  TSymbol ch -> printf "'%s'" [ch]
+  TInvalid -> printf "NZ %s" ("TInvalid" :: String)
+  TError _ e -> printf "ERROR %s" (show e)
+  _ -> "### SHOULD NOT BE PRETTY PRINTED ###"

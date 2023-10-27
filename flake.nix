@@ -93,6 +93,7 @@
             "fixed-vector"
             "lens"
             "mtl"
+            "parser-combinators"
             "regex-tdfa"
             "text"
             "utility-ht"
