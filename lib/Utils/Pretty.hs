@@ -3,8 +3,8 @@ module Utils.Pretty (
   prettyPrintToken,
 ) where
 
-import Control.Lens (Field1 (_1), Field2 (_2), (%=), (+=), (^.))
-import Control.Monad.State (MonadState (..), State, evalState)
+import Control.Lens (Field1 (_1), Field2 (_2), use, (%=), (+=), (^.))
+import Control.Monad.State (State, evalState)
 import Data.Char (toLower)
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
@@ -15,65 +15,76 @@ import Text.Printf (printf)
 
 lexAndPrettyPrint :: (FilePath, T.Text) -> T.Text
 lexAndPrettyPrint (sourceFile, sourceCode) =
-  let
-    tokens :: [Token]
-    tokens = lexer sourceCode
-    linenize :: State (Int, [Token]) [T.Text]
-    linenize = do
-      (line, tokens) <- get
-      -- TODO: clean up
-      case listToMaybe tokens of
-        Nothing -> pure []
-        Just token -> do
-          case token of
-            TNewLine -> do
-              _1 %= succ
-              _2 %= tail
-              linenize
-            TComment n -> do
-              _1 += n
-              _2 %= tail
-              linenize
-            TWhitespace -> do
-              _2 %= tail
-              linenize
-            TString n _ -> do
-              _1 += n
-              _2 %= tail
-              (numberedTokenToPretty (line + n, token) :) <$> linenize
-            TError showLine skipLines _ -> do
-              _1 += skipLines
-              _2 %= tail
-              (numberedTokenToPretty (line + showLine, token) :) <$> linenize
-            _ -> do
-              _2 %= tail
-              (numberedTokenToPretty (line, token) :) <$> linenize
-    prettyLines :: [T.Text]
-    prettyLines = evalState linenize (1, tokens)
-    header :: T.Text
-    header =
-      T.pack $
-        printf
-          "#name \"%s\""
-          (sourceFile ^. filename)
-   in
-    T.unlines $ header : prettyLines
+  T.unlines $ header : prettyLines
  where
-  numberedTokenToPretty :: (Int, Token) -> T.Text
-  numberedTokenToPretty (line, token) =
+  tokens :: [Token]
+  tokens = lexer sourceCode
+
+  prettyLines :: [T.Text]
+  prettyLines = evalState linenize (1, tokens)
+
+  header :: T.Text
+  header =
     T.pack $
       printf
-        "#%s %s"
-        (show line)
-        (prettyPrintToken token)
+        "#name \"%s\""
+        (sourceFile ^. filename)
+
+linenize :: State (Int, [Token]) [T.Text]
+linenize = do
+  maybeToken <- takeToken
+  case maybeToken of
+    Just token -> do
+      line <- use _1
+      process <- processToken line token
+      maybe id (:) process <$> linenize
+    Nothing -> do
+      pure []
+ where
+  takeToken :: State (Int, [Token]) (Maybe Token)
+  takeToken = do
+    tokens <- use _2
+    case listToMaybe tokens of
+      Nothing -> do
+        pure Nothing
+      Just token -> do
+        _2 %= tail
+        pure $ Just token
+
+numberedTokenToPretty :: (Int, Token) -> T.Text
+numberedTokenToPretty (line, token) =
+  T.pack $
+    printf
+      "#%s %s"
+      (show line)
+      (prettyPrintToken token)
+
+processToken :: Int -> Token -> State (Int, [Token]) (Maybe T.Text)
+processToken line token = do
+  _1 += skipLines
+  pure maybePrintedToken
+ where
+  (skipLines, maybePrintedToken) = case token of
+    TNewLine ->
+      (1, Nothing)
+    TComment n ->
+      (n, Nothing)
+    TWhitespace ->
+      (0, Nothing)
+    TString n _ ->
+      (n, Just $ numberedTokenToPretty (line + n, token))
+    TError showLine skipLines _ ->
+      (skipLines, Just $ numberedTokenToPretty (line + showLine, token))
+    _ ->
+      (0, Just $ numberedTokenToPretty (line, token))
 
 charToMaybeOctal :: Char -> String
 charToMaybeOctal ch =
   if
-      | fromEnum ch
-          `elem` escapedCharacters ->
+      | fromEnum ch `elem` escapedCharacters ->
           printf "\\%03s" (showOct (fromEnum ch) "")
-      | ch `elem` ['\\', '"'] -> printf "\\%s" [ch]
+      | ch `elem` ['\\', '"'] ->
+          printf "\\%s" [ch]
       | otherwise -> case ch of
           '\n' -> printf "\\n"
           '\t' -> printf "\\t"
