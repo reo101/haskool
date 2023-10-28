@@ -60,5 +60,3 @@ test_Lexer = describe "Haskool Lexer" do
           lexAndPrettyPrint (sourceFile, sourceCode) `shouldBe` lexOutput
     )
     testPairs
-
--- /Users/pavelatanasov/Projects/FMI/Compilers/haskool/dist-newstyle/build/aarch64-osx/ghc-9.4.6/haskool-0.1.0.0/t/haskool-test/test/haskool-0.1.0.0-haskool-test.log
