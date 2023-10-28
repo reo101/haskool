@@ -6,7 +6,7 @@ module Lexer (
   lineCommentLexer,
   unmatchedCommentLexer,
   eofLexer,
-  symbolLexer,
+  operatorLexer,
   classLexer,
   ifLexer,
   thenLexer,
@@ -38,8 +38,9 @@ where
 
 import Control.Applicative (Alternative (..), Applicative (liftA2))
 import Control.Applicative.Combinators (manyTill_)
-import Control.Lens (Field1 (_1), (%~), (&))
-import Data.Attoparsec.Combinator (satisfyElem)
+import Control.Lens (Field1 (_1), Field2 (_2), (%~), (&), (^?), _Just)
+import Control.Monad (join)
+import Data.Attoparsec.Combinator (lookAhead, satisfyElem)
 import Data.Attoparsec.Text (
   Parser,
   anyChar,
@@ -54,10 +55,11 @@ import Data.Attoparsec.Text (
 import Data.Bool.HT (if')
 import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, toLower, toUpper)
 import Data.Either.Extra (fromRight', partitionEithers)
+import Data.List (isInfixOf)
+import Data.Maybe (fromMaybe)
 import Data.Monoid (Sum (..))
 import Data.Text qualified as T
 import Data.Tuple.Extra (both)
-import Debug.Trace (traceShowId)
 
 data Token
   = TComment Int
@@ -88,58 +90,57 @@ data Token
   | TWhitespace
   | TNewLine
   | TSymbol Char -- [+/-*=<.~,;:()@{}]
-  | TInvalid
   | TInteger T.Text
   | TString Int T.Text
-  | TError Int T.Text
+  | TError Int Int T.Text
   deriving stock (Show, Eq)
 
 lexer :: T.Text -> [Token]
 lexer text =
   fromRight' $
-    traceShowId $
-      flip parseOnly text $
-        flip manyTill eofLexer $
-          -- many $
-          choice
-            [ intLexer
-            , commentLexer
-            , lineCommentLexer
-            , unmatchedCommentLexer
-            , classLexer
-            , ifLexer
-            , thenLexer
-            , elseLexer
-            , fiLexer
-            , inheritsLexer
-            , isVoidLexer
-            , letLexer
-            , inLexer
-            , whileLexer
-            , loopLexer
-            , poolLexer
-            , caseLexer
-            , esacLexer
-            , newLexer
-            , ofLexer
-            , notLexer
-            , trueLexer
-            , falseLexer
-            , typeIdLexer
-            , objectIdLexer
-            , darrowLexer
-            , lessEqualLexer
-            , whitespaceLexer
-            , newLineLexer
-            , stringLexer
-            , symbolLexer
-            ]
+    flip parseOnly text $
+      flip manyTill eofLexer $
+        -- many $
+        choice
+          [ intLexer
+          , commentLexer
+          , lineCommentLexer
+          , unmatchedCommentLexer
+          , classLexer
+          , ifLexer
+          , thenLexer
+          , elseLexer
+          , fiLexer
+          , inheritsLexer
+          , isVoidLexer
+          , letLexer
+          , inLexer
+          , whileLexer
+          , loopLexer
+          , poolLexer
+          , caseLexer
+          , esacLexer
+          , newLexer
+          , ofLexer
+          , notLexer
+          , trueLexer
+          , falseLexer
+          , typeIdLexer
+          , objectIdLexer
+          , darrowLexer
+          , lessEqualLexer
+          , whitespaceLexer
+          , newLineLexer
+          , stringLexer
+          , operatorLexer
+          , invalidCharLexer
+          ]
 
 intLexer :: Parser Token
 intLexer = TInteger . T.pack <$> some digit
 
 commentLexer :: Parser Token
-commentLexer = (\(success, n) -> (if success then TComment else flip TError "EOF in comment") n) <$> go
+commentLexer = (\(success, n) -> (if success then TComment else flip (join TError) "EOF in comment") n) <$> go
  where
   go :: Parser (Bool, Int)
   go = do
@@ -161,8 +162,10 @@ commentLexer = (\(success, n) -> (if success then TComment else flip TError "EOF
             partitionEithers $
               (\(success, n) -> if' success Right Left n)
                 <$> linesSkipped
+    -- pure (successfully, badLines + goodLines)
     if successfully
       then do
+      -- NOTE: `badLines` should be 0
         pure (True, goodLines)
       else do
         pure (False, badLines + goodLines)
@@ -174,73 +177,85 @@ lineCommentLexer = do
   pure $ TComment 1
 
 unmatchedCommentLexer :: Parser Token
-unmatchedCommentLexer = TError 0 "Unmatched *)" <$ string "*)"
+unmatchedCommentLexer = TError 0 0 "Unmatched *)" <$ string "*)"
 
 eofLexer :: Parser Token
 eofLexer = TEOF <$ endOfInput
 
-symbolLexer :: Parser Token
-symbolLexer = TSymbol <$> choice (char <$> "+/-*=<.~,;:()@{}")
+operatorLexer :: Parser Token
+operatorLexer = do
+  choice
+    [ TLessEqual <$ string "<="
+    , TDArrow <$ string "=>"
+    , TAssign <$ string "<-"
+    , TSymbol <$> choice (char <$> ";{}(,):@.+-*/~<=")
+    ]
 
-stringCaseInsensitive :: String -> Parser String
-stringCaseInsensitive = traverse (liftA2 (<|>) (char . toUpper) (char . toLower))
+keywordCaseInsensitive :: String -> Parser String
+keywordCaseInsensitive str = do
+  let insensitiveChar :: Char -> Parser Char
+      insensitiveChar = liftA2 (<|>) (char . toUpper) (char . toLower)
+  insStr <- traverse insensitiveChar str
+  -- NOTE: might need to remove `Num` from `isAlphaNumOrUnderscore`
+  _ <- lookAhead (satisfyElem $ not . isAlphaNumOrUnderscore)
+  pure insStr
 
 classLexer :: Parser Token
-classLexer = TClass <$ stringCaseInsensitive "class"
+classLexer = TClass <$ keywordCaseInsensitive "class"
 
 ifLexer :: Parser Token
-ifLexer = TIf <$ stringCaseInsensitive "if"
+ifLexer = TIf <$ keywordCaseInsensitive "if"
 
 thenLexer :: Parser Token
-thenLexer = TThen <$ stringCaseInsensitive "then"
+thenLexer = TThen <$ keywordCaseInsensitive "then"
 
 elseLexer :: Parser Token
-elseLexer = TElse <$ stringCaseInsensitive "else"
+elseLexer = TElse <$ keywordCaseInsensitive "else"
 
 fiLexer :: Parser Token
-fiLexer = TFi <$ stringCaseInsensitive "fi"
+fiLexer = TFi <$ keywordCaseInsensitive "fi"
 
 inheritsLexer :: Parser Token
-inheritsLexer = TInherits <$ stringCaseInsensitive "inherits"
+inheritsLexer = TInherits <$ keywordCaseInsensitive "inherits"
 
 isVoidLexer :: Parser Token
-isVoidLexer = TIsVoid <$ stringCaseInsensitive "isvoid"
+isVoidLexer = TIsVoid <$ keywordCaseInsensitive "isvoid"
 
 letLexer :: Parser Token
-letLexer = TLet <$ stringCaseInsensitive "let"
+letLexer = TLet <$ keywordCaseInsensitive "let"
 
 inLexer :: Parser Token
-inLexer = TIn <$ stringCaseInsensitive "in"
+inLexer = TIn <$ keywordCaseInsensitive "in"
 
 whileLexer :: Parser Token
-whileLexer = TWhile <$ stringCaseInsensitive "while"
+whileLexer = TWhile <$ keywordCaseInsensitive "while"
 
 loopLexer :: Parser Token
-loopLexer = TLoop <$ stringCaseInsensitive "loop"
+loopLexer = TLoop <$ keywordCaseInsensitive "loop"
 
 poolLexer :: Parser Token
-poolLexer = TPool <$ stringCaseInsensitive "pool"
+poolLexer = TPool <$ keywordCaseInsensitive "pool"
 
 caseLexer :: Parser Token
-caseLexer = TCase <$ stringCaseInsensitive "case"
+caseLexer = TCase <$ keywordCaseInsensitive "case"
 
 esacLexer :: Parser Token
-esacLexer = TEsac <$ stringCaseInsensitive "esac"
+esacLexer = TEsac <$ keywordCaseInsensitive "esac"
 
 newLexer :: Parser Token
-newLexer = TNew <$ stringCaseInsensitive "new"
+newLexer = TNew <$ keywordCaseInsensitive "new"
 
 ofLexer :: Parser Token
-ofLexer = TOf <$ stringCaseInsensitive "of"
+ofLexer = TOf <$ keywordCaseInsensitive "of"
 
 notLexer :: Parser Token
-notLexer = TNot <$ stringCaseInsensitive "not"
+notLexer = TNot <$ keywordCaseInsensitive "not"
 
 trueLexer :: Parser Token
-trueLexer = TBool True <$ stringCaseInsensitive "true"
+trueLexer = TBool True <$ (char 't' *> keywordCaseInsensitive "rue")
 
 falseLexer :: Parser Token
-falseLexer = TBool False <$ stringCaseInsensitive "false"
+falseLexer = TBool False <$ (char 'f' *> keywordCaseInsensitive "alse")
 
 isAlphaNumOrUnderscore :: Char -> Bool
 isAlphaNumOrUnderscore = liftA2 (||) isAlphaNum (== '_')
@@ -272,9 +287,10 @@ whitespaceLexer = TWhitespace <$ some (choice $ char <$> whitespaces)
       <$> [ 32 -- space
           , 12 -- formfeed
           , 13 -- carriage return
-          , 9 -- tab
+          , 09 -- tab
           , 11 -- vertical tab
           ]
+
 newLineLexer :: Parser Token
 newLineLexer = TNewLine <$ char '\n'
 
@@ -284,24 +300,53 @@ stringLexer :: Parser Token
 stringLexer = do
   let quote = char '"'
   _ <- quote
-  chrs <-
-    manyTill
-      (choice [escapedCharLexer, (1, '\n') <$ newLineLexer, (0,) <$> anyChar])
-      quote
+  (chrs, maybeErrorMessage) <-
+    manyTill_
+      (choice [escapedCharLexer, (1, "\n") <$ newLineLexer, (0,) . pure <$> anyChar])
+      ( choice
+          [ Nothing <$ quote
+          , Just (0, "EOF in string constant") <$ eofLexer
+          , Just (1, "Unterminated string constant") <$ newLineLexer
+          ]
+      )
   -- Sum all `fst`s, leave `snd`s
-  let (rows, str) =
+  let (lines, str) =
         chrs
           & ((_1 %~ Sum) <$>)
           & sequenceA
           & (_1 %~ getSum)
-  pure $ TString rows $ T.pack str
+          & (_2 %~ concat)
+
+  let skippedLines = fromMaybe 0 $ maybeErrorMessage ^? _Just . _1
+
+  if
+      -- HACK: ONLY (`null` / `escaped null`) + `unterminated` results
+      --       in an error whose `display line` and `consumed lines` differ
+      | "\\\0" `isInfixOf` str -> do
+          pure $ TError lines (lines + skippedLines) "String contains escaped null character."
+      | '\0' `elem` str -> do
+          pure $ TError lines (lines + skippedLines) "String contains null character."
+      | Just (_, errorMessage) <- maybeErrorMessage -> do
+          pure $ join TError (lines + skippedLines) errorMessage
+      | length str > 1024 -> do
+          pure $ join TError lines "String constant too long"
+      | otherwise -> do
+          pure $ TString lines $ T.pack str
  where
-  escapedCharLexer :: Parser (Int, Char)
+  escapedCharLexer :: Parser (Int, String)
   escapedCharLexer = do
     _ <- char '\\'
     ch <- anyChar
     pure $ case ch of
-      'n' -> (1, '\n')
-      '\n' -> (1, '\n')
-      't' -> (0, '\t')
-      _ -> (0, ch)
+      '\n' -> (1, "\n")
+      'n' -> (0, "\n")
+      't' -> (0, "\t")
+      'f' -> (0, "\f")
+      'b' -> (0, "\b")
+      -- HACK: escaped null character is a different error
+      --       than a plain null character
+      '\0' -> (0, "\\\0")
+      _ -> (0, [ch])
+
+invalidCharLexer :: Parser Token
+invalidCharLexer = join TError 0 . T.pack . pure <$> anyChar
