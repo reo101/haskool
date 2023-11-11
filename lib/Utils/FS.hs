@@ -23,21 +23,21 @@ data Test where
   Test ::
     { sourceFile :: FilePath
     , sourceCode :: T.Text
-    , lexOutput :: T.Text
+    , output :: T.Text
     } ->
     Test
 
 pairUpTestCases :: [FilePath] -> IO [Test]
 pairUpTestCases testFiles = do
   traverse
-    ( \[sourceFile, lexOutputFile] -> do
+    ( \[sourceFile, outputFile] -> do
         sourceCode <- T.pack <$> readFile' sourceFile
-        lexOutput <- T.pack <$> readFile' lexOutputFile
+        output <- T.pack <$> readFile' outputFile
         pure $
           Test
             { sourceFile
             , sourceCode
-            , lexOutput
+            , output
             }
     )
     (chunksOf 2 $ sort testFiles)

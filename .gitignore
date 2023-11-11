@@ -1,5 +1,5 @@
-/dist-newstyle
-/.direnv
-/**/.env
-/graders/bundle
-/graders/tests
+dist-newstyle
+.direnv
+**/.env
+test/data/*
+!test/data/.gitkeep

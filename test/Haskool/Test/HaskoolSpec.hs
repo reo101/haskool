@@ -35,7 +35,7 @@ import Test.QuickCheck (
   withMaxSuccess,
  )
 
-import Lexer (Token, lexer)
+import Lexer (Lexeme, lexer)
 import Text.Printf (printf)
 import Utils.FS (
   Test (..),
@@ -44,19 +44,32 @@ import Utils.FS (
  )
 import Utils.Pretty (
   lexAndPrettyPrint,
+  lexParseAndPrettyPrint,
  )
 
 spec :: Spec
 spec = do
   test_Lexer
+  -- test_Parser
 
 test_Lexer :: Spec
 test_Lexer = describe "Haskool Lexer" do
-  testFiles <- runIO $ listFilesInDirectory "./graders/tests"
+  testFiles <- runIO $ listFilesInDirectory "./test/data/01"
   testPairs <- runIO $ pairUpTestCases testFiles
   traverse_
-    ( \Test{sourceFile, sourceCode, lexOutput} -> do
+    ( \Test{sourceFile, sourceCode, output} -> do
         it (printf "Test %s" sourceFile) $ property do
-          lexAndPrettyPrint (sourceFile, sourceCode) `shouldBe` lexOutput
+          lexAndPrettyPrint (sourceFile, sourceCode) `shouldBe` output
+    )
+    testPairs
+
+test_Parser :: Spec
+test_Parser = describe "Haskool Parser" do
+  testFiles <- runIO $ listFilesInDirectory "./test/data/02"
+  testPairs <- runIO $ pairUpTestCases testFiles
+  traverse_
+    ( \Test{sourceFile, sourceCode, output} -> do
+        it (printf "Test %s" sourceFile) $ property do
+          lexParseAndPrettyPrint (sourceFile, sourceCode) `shouldBe` output
     )
     testPairs

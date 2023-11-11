@@ -1,6 +1,7 @@
 module Utils.Pretty (
   lexAndPrettyPrint,
-  prettyPrintToken,
+  lexParseAndPrettyPrint,
+  prettyPrintLexeme,
 ) where
 
 import Control.Lens (Field1 (_1), Field2 (_2), use, (%=), (+=), (^.))
@@ -8,16 +9,19 @@ import Control.Monad.State (State, evalState)
 import Data.Char (toLower)
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
-import Lexer (Token (..), lexer)
+import Lexer (Lexeme (..), lexer)
 import Numeric (showOct)
 import System.FilePath.Lens (filename)
 import Text.Printf (printf)
+
+lexParseAndPrettyPrint :: (FilePath, T.Text) -> T.Text
+lexParseAndPrettyPrint (sourceFile, sourceCode) = undefined
 
 lexAndPrettyPrint :: (FilePath, T.Text) -> T.Text
 lexAndPrettyPrint (sourceFile, sourceCode) =
   T.unlines $ header : prettyLines
  where
-  tokens :: [Token]
+  tokens :: [Lexeme]
   tokens = lexer sourceCode
 
   prettyLines :: [T.Text]
@@ -30,19 +34,19 @@ lexAndPrettyPrint (sourceFile, sourceCode) =
         "#name \"%s\""
         (sourceFile ^. filename)
 
-linenize :: State (Int, [Token]) [T.Text]
+linenize :: State (Int, [Lexeme]) [T.Text]
 linenize = do
-  maybeToken <- takeToken
-  case maybeToken of
+  maybeLexeme <- takeLexeme
+  case maybeLexeme of
     Just token -> do
       line <- use _1
-      process <- processToken line token
+      process <- processLexeme line token
       maybe id (:) process <$> linenize
     Nothing -> do
       pure []
  where
-  takeToken :: State (Int, [Token]) (Maybe Token)
-  takeToken = do
+  takeLexeme :: State (Int, [Lexeme]) (Maybe Lexeme)
+  takeLexeme = do
     tokens <- use _2
     case listToMaybe tokens of
       Nothing -> do
@@ -51,32 +55,32 @@ linenize = do
         _2 %= tail
         pure $ Just token
 
-numberedTokenToPretty :: (Int, Token) -> T.Text
-numberedTokenToPretty (line, token) =
+numberedLexemeToPretty :: (Int, Lexeme) -> T.Text
+numberedLexemeToPretty (line, token) =
   T.pack $
     printf
       "#%s %s"
       (show line)
-      (prettyPrintToken token)
+      (prettyPrintLexeme token)
 
-processToken :: Int -> Token -> State (Int, [Token]) (Maybe T.Text)
-processToken line token = do
+processLexeme :: Int -> Lexeme -> State (Int, [Lexeme]) (Maybe T.Text)
+processLexeme line token = do
   _1 += skipLines
-  pure maybePrintedToken
+  pure maybePrintedLexeme
  where
-  (skipLines, maybePrintedToken) = case token of
-    TNewLine ->
+  (skipLines, maybePrintedLexeme) = case token of
+    LNewLine ->
       (1, Nothing)
-    TComment n ->
+    LComment n ->
       (n, Nothing)
-    TWhitespace ->
+    LWhitespace ->
       (0, Nothing)
-    TString n _ ->
-      (n, Just $ numberedTokenToPretty (line + n, token))
-    TError showLine skipLines _ ->
-      (skipLines, Just $ numberedTokenToPretty (line + showLine, token))
+    LString n _ ->
+      (n, Just $ numberedLexemeToPretty (line + n, token))
+    LError showLine skipLines _ ->
+      (skipLines, Just $ numberedLexemeToPretty (line + showLine, token))
     _ ->
-      (0, Just $ numberedTokenToPretty (line, token))
+      (0, Just $ numberedLexemeToPretty (line, token))
 
 charToMaybeOctal :: Char -> String
 charToMaybeOctal ch =
@@ -104,37 +108,37 @@ charToMaybeOctal ch =
     , 0o33
     ]
 
-prettyPrintToken :: Token -> String
-prettyPrintToken = \case
-  TInteger i -> printf "INT_CONST %s" i
-  TString _ s -> printf "STR_CONST \"%s\"" (T.unpack s >>= charToMaybeOctal)
-  -- TComment n -> undefined
-  -- TEOF -> undefined
-  TClass -> printf "CLASS"
-  TIf -> printf "IF"
-  TThen -> printf "THEN"
-  TElse -> printf "ELSE"
-  TFi -> printf "FI"
-  TInherits -> printf "INHERITS"
-  TIsVoid -> printf "ISVOID"
-  TLet -> printf "LET"
-  TIn -> printf "IN"
-  TWhile -> printf "WHILE"
-  TLoop -> printf "LOOP"
-  TPool -> printf "POOL"
-  TCase -> printf "CASE"
-  TEsac -> printf "ESAC"
-  TNew -> printf "NEW"
-  TOf -> printf "OF"
-  TNot -> printf "NOT"
-  TBool p -> printf "BOOL_CONST %s" (T.pack $ toLower <$> show p)
-  TTypeId i -> printf "TYPEID %s" i
-  TObjectId i -> printf "OBJECTID %s" i
-  TDArrow -> printf "DARROW"
-  TLessEqual -> printf "LE"
-  TAssign -> printf "ASSIGN"
-  -- TWhitespace -> undefined
-  -- TNewLine -> undefined
-  TSymbol ch -> printf "'%s'" [ch]
-  TError _ _ e -> printf "ERROR \"%s\"" (T.unpack e >>= charToMaybeOctal)
+prettyPrintLexeme :: Lexeme -> String
+prettyPrintLexeme = \case
+  LInteger i -> printf "INT_CONST %s" (show i)
+  LString _ s -> printf "STR_CONST \"%s\"" (T.unpack s >>= charToMaybeOctal)
+  -- LComment n -> undefined
+  -- LEOF -> undefined
+  LClass -> printf "CLASS"
+  LIf -> printf "IF"
+  LThen -> printf "THEN"
+  LElse -> printf "ELSE"
+  LFi -> printf "FI"
+  LInherits -> printf "INHERITS"
+  LIsVoid -> printf "ISVOID"
+  LLet -> printf "LET"
+  LIn -> printf "IN"
+  LWhile -> printf "WHILE"
+  LLoop -> printf "LOOP"
+  LPool -> printf "POOL"
+  LCase -> printf "CASE"
+  LEsac -> printf "ESAC"
+  LNew -> printf "NEW"
+  LOf -> printf "OF"
+  LNot -> printf "NOT"
+  LBool p -> printf "BOOL_CONST %s" (T.pack $ toLower <$> show p)
+  LTypeId i -> printf "TYPEID %s" i
+  LObjectId i -> printf "OBJECTID %s" i
+  LDArrow -> printf "DARROW"
+  LLessEqual -> printf "LE"
+  LAssign -> printf "ASSIGN"
+  -- LWhitespace -> undefined
+  -- LNewLine -> undefined
+  LSymbol ch -> printf "'%s'" [ch]
+  LError _ _ e -> printf "ERROR \"%s\"" (T.unpack e >>= charToMaybeOctal)
   _ -> "### SHOULD NOT BE PRETTY PRINTED ###"

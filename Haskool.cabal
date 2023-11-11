@@ -20,6 +20,8 @@ library
       Haskool
       Lexer
       Lexer.Old
+      Parser
+      Parser.Types
       Regex.Atto
       Utils.FS
       Utils.Pretty
@@ -32,6 +34,7 @@ library
       DataKinds
       DeriveAnyClass
       DerivingStrategies
+      DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
       LambdaCase
@@ -58,6 +61,7 @@ library
     , filepath
     , fixed-vector
     , lens
+    , megaparsec
     , mtl
     , parser-combinators
     , regex-tdfa
@@ -77,6 +81,7 @@ executable haskool
       DataKinds
       DeriveAnyClass
       DerivingStrategies
+      DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
       LambdaCase
@@ -109,6 +114,7 @@ test-suite haskool-test
       DataKinds
       DeriveAnyClass
       DerivingStrategies
+      DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
       LambdaCase

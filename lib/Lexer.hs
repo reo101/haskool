@@ -1,5 +1,5 @@
 module Lexer (
-  Token (..),
+  Lexeme (..),
   lexer,
   intLexer,
   commentLexer,
@@ -46,56 +46,56 @@ import Data.Attoparsec.Text (
   anyChar,
   char,
   choice,
-  digit,
   endOfInput,
   manyTill,
   parseOnly,
   string,
  )
 import Data.Bool.HT (if')
-import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, toLower, toUpper)
+import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, toLower, toUpper, isDigit)
 import Data.Either.Extra (fromRight', partitionEithers)
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe)
 import Data.Monoid (Sum (..))
 import Data.Text qualified as T
 import Data.Tuple.Extra (both)
+import Data.Function (on)
 
-data Token
-  = TComment Int
-  | TEOF
-  | TClass
-  | TIf
-  | TElse
-  | TFi
-  | TInherits
-  | TIsVoid
-  | TLet
-  | TIn
-  | TWhile
-  | TLoop
-  | TPool
-  | TThen
-  | TCase
-  | TEsac
-  | TNew
-  | TOf
-  | TNot
-  | TBool Bool
-  | TTypeId T.Text
-  | TObjectId T.Text
-  | TDArrow
-  | TLessEqual
-  | TAssign
-  | TWhitespace
-  | TNewLine
-  | TSymbol Char -- [+/-*=<.~,;:()@{}]
-  | TInteger T.Text
-  | TString Int T.Text
-  | TError Int Int T.Text
-  deriving stock (Show, Eq)
+data Lexeme
+  = LComment Int
+  | LEOF
+  | LClass
+  | LIf
+  | LElse
+  | LFi
+  | LInherits
+  | LIsVoid
+  | LLet
+  | LIn
+  | LWhile
+  | LLoop
+  | LPool
+  | LThen
+  | LCase
+  | LEsac
+  | LNew
+  | LOf
+  | LNot
+  | LBool Bool
+  | LTypeId T.Text
+  | LObjectId T.Text
+  | LDArrow
+  | LLessEqual
+  | LAssign
+  | LWhitespace
+  | LNewLine
+  | LSymbol Char -- [+/-*=<.~,;:()@{}]
+  | LInteger Int
+  | LString Int T.Text
+  | LError Int Int T.Text
+  deriving stock (Show, Ord, Eq)
 
-lexer :: T.Text -> [Token]
+lexer :: T.Text -> [Lexeme]
 lexer text =
   fromRight' $
     flip parseOnly text $
@@ -136,11 +136,21 @@ lexer text =
           , invalidCharLexer
           ]
 
-intLexer :: Parser Token
-intLexer = TInteger . T.pack <$> some digit
+-- FIXME: parse or no parse?
+intLexer :: Parser Lexeme
+intLexer = LInteger . digitsToNumber <$> some digit
+ where
+  digit :: Parser Int
+  digit = do
+    digitChar <- satisfyElem isDigit
+    pure $ ((-) `on` fromEnum) digitChar '0'
 
-commentLexer :: Parser Token
-commentLexer = (\(success, n) -> (if success then TComment else flip (join TError) "EOF in comment") n) <$> go
+  digitsToNumber :: [Int] -> Int
+  digitsToNumber = foldl (\acc x -> acc * 10 + x) 0
+
+
+commentLexer :: Parser Lexeme
+commentLexer = (\(success, n) -> (if success then LComment else flip (join LError) "EOF in comment") n) <$> go
  where
   go :: Parser (Bool, Int)
   go = do
@@ -170,25 +180,25 @@ commentLexer = (\(success, n) -> (if success then TComment else flip (join TErro
       else do
         pure (False, badLines + goodLines)
 
-lineCommentLexer :: Parser Token
+lineCommentLexer :: Parser Lexeme
 lineCommentLexer = do
   _ <- string "--"
   _ <- manyTill anyChar (choice [newLineLexer, eofLexer])
-  pure $ TComment 1
+  pure $ LComment 1
 
-unmatchedCommentLexer :: Parser Token
-unmatchedCommentLexer = TError 0 0 "Unmatched *)" <$ string "*)"
+unmatchedCommentLexer :: Parser Lexeme
+unmatchedCommentLexer = LError 0 0 "Unmatched *)" <$ string "*)"
 
-eofLexer :: Parser Token
-eofLexer = TEOF <$ endOfInput
+eofLexer :: Parser Lexeme
+eofLexer = LEOF <$ endOfInput
 
-operatorLexer :: Parser Token
+operatorLexer :: Parser Lexeme
 operatorLexer = do
   choice
-    [ TLessEqual <$ string "<="
-    , TDArrow <$ string "=>"
-    , TAssign <$ string "<-"
-    , TSymbol <$> choice (char <$> ";{}(,):@.+-*/~<=")
+    [ LLessEqual <$ string "<="
+    , LDArrow <$ string "=>"
+    , LAssign <$ string "<-"
+    , LSymbol <$> choice (char <$> ";{}(,):@.+-*/~<=")
     ]
 
 keywordCaseInsensitive :: String -> Parser String
@@ -200,86 +210,86 @@ keywordCaseInsensitive str = do
   _ <- lookAhead (satisfyElem $ not . isAlphaNumOrUnderscore)
   pure insStr
 
-classLexer :: Parser Token
-classLexer = TClass <$ keywordCaseInsensitive "class"
+classLexer :: Parser Lexeme
+classLexer = LClass <$ keywordCaseInsensitive "class"
 
-ifLexer :: Parser Token
-ifLexer = TIf <$ keywordCaseInsensitive "if"
+ifLexer :: Parser Lexeme
+ifLexer = LIf <$ keywordCaseInsensitive "if"
 
-thenLexer :: Parser Token
-thenLexer = TThen <$ keywordCaseInsensitive "then"
+thenLexer :: Parser Lexeme
+thenLexer = LThen <$ keywordCaseInsensitive "then"
 
-elseLexer :: Parser Token
-elseLexer = TElse <$ keywordCaseInsensitive "else"
+elseLexer :: Parser Lexeme
+elseLexer = LElse <$ keywordCaseInsensitive "else"
 
-fiLexer :: Parser Token
-fiLexer = TFi <$ keywordCaseInsensitive "fi"
+fiLexer :: Parser Lexeme
+fiLexer = LFi <$ keywordCaseInsensitive "fi"
 
-inheritsLexer :: Parser Token
-inheritsLexer = TInherits <$ keywordCaseInsensitive "inherits"
+inheritsLexer :: Parser Lexeme
+inheritsLexer = LInherits <$ keywordCaseInsensitive "inherits"
 
-isVoidLexer :: Parser Token
-isVoidLexer = TIsVoid <$ keywordCaseInsensitive "isvoid"
+isVoidLexer :: Parser Lexeme
+isVoidLexer = LIsVoid <$ keywordCaseInsensitive "isvoid"
 
-letLexer :: Parser Token
-letLexer = TLet <$ keywordCaseInsensitive "let"
+letLexer :: Parser Lexeme
+letLexer = LLet <$ keywordCaseInsensitive "let"
 
-inLexer :: Parser Token
-inLexer = TIn <$ keywordCaseInsensitive "in"
+inLexer :: Parser Lexeme
+inLexer = LIn <$ keywordCaseInsensitive "in"
 
-whileLexer :: Parser Token
-whileLexer = TWhile <$ keywordCaseInsensitive "while"
+whileLexer :: Parser Lexeme
+whileLexer = LWhile <$ keywordCaseInsensitive "while"
 
-loopLexer :: Parser Token
-loopLexer = TLoop <$ keywordCaseInsensitive "loop"
+loopLexer :: Parser Lexeme
+loopLexer = LLoop <$ keywordCaseInsensitive "loop"
 
-poolLexer :: Parser Token
-poolLexer = TPool <$ keywordCaseInsensitive "pool"
+poolLexer :: Parser Lexeme
+poolLexer = LPool <$ keywordCaseInsensitive "pool"
 
-caseLexer :: Parser Token
-caseLexer = TCase <$ keywordCaseInsensitive "case"
+caseLexer :: Parser Lexeme
+caseLexer = LCase <$ keywordCaseInsensitive "case"
 
-esacLexer :: Parser Token
-esacLexer = TEsac <$ keywordCaseInsensitive "esac"
+esacLexer :: Parser Lexeme
+esacLexer = LEsac <$ keywordCaseInsensitive "esac"
 
-newLexer :: Parser Token
-newLexer = TNew <$ keywordCaseInsensitive "new"
+newLexer :: Parser Lexeme
+newLexer = LNew <$ keywordCaseInsensitive "new"
 
-ofLexer :: Parser Token
-ofLexer = TOf <$ keywordCaseInsensitive "of"
+ofLexer :: Parser Lexeme
+ofLexer = LOf <$ keywordCaseInsensitive "of"
 
-notLexer :: Parser Token
-notLexer = TNot <$ keywordCaseInsensitive "not"
+notLexer :: Parser Lexeme
+notLexer = LNot <$ keywordCaseInsensitive "not"
 
-trueLexer :: Parser Token
-trueLexer = TBool True <$ (char 't' *> keywordCaseInsensitive "rue")
+trueLexer :: Parser Lexeme
+trueLexer = LBool True <$ (char 't' *> keywordCaseInsensitive "rue")
 
-falseLexer :: Parser Token
-falseLexer = TBool False <$ (char 'f' *> keywordCaseInsensitive "alse")
+falseLexer :: Parser Lexeme
+falseLexer = LBool False <$ (char 'f' *> keywordCaseInsensitive "alse")
 
 isAlphaNumOrUnderscore :: Char -> Bool
 isAlphaNumOrUnderscore = liftA2 (||) isAlphaNum (== '_')
 
-typeIdLexer :: Parser Token
+typeIdLexer :: Parser Lexeme
 typeIdLexer = do
   first <- satisfyElem isAsciiUpper
   rest <- many $ satisfyElem isAlphaNumOrUnderscore
-  pure $ TTypeId $ T.pack $ first : rest
+  pure $ LTypeId $ T.pack $ first : rest
 
-objectIdLexer :: Parser Token
+objectIdLexer :: Parser Lexeme
 objectIdLexer = do
   first <- satisfyElem isAsciiLower
   rest <- many $ satisfyElem isAlphaNumOrUnderscore
-  pure $ TObjectId $ T.pack $ first : rest
+  pure $ LObjectId $ T.pack $ first : rest
 
-darrowLexer :: Parser Token
-darrowLexer = TDArrow <$ string "=>"
+darrowLexer :: Parser Lexeme
+darrowLexer = LDArrow <$ string "=>"
 
-lessEqualLexer :: Parser Token
-lessEqualLexer = TLessEqual <$ string "<="
+lessEqualLexer :: Parser Lexeme
+lessEqualLexer = LLessEqual <$ string "<="
 
-whitespaceLexer :: Parser Token
-whitespaceLexer = TWhitespace <$ some (choice $ char <$> whitespaces)
+whitespaceLexer :: Parser Lexeme
+whitespaceLexer = LWhitespace <$ some (choice $ char <$> whitespaces)
  where
   whitespaces :: [Char]
   whitespaces =
@@ -291,12 +301,10 @@ whitespaceLexer = TWhitespace <$ some (choice $ char <$> whitespaces)
           , 11 -- vertical tab
           ]
 
-newLineLexer :: Parser Token
-newLineLexer = TNewLine <$ char '\n'
+newLineLexer :: Parser Lexeme
+newLineLexer = LNewLine <$ char '\n'
 
--- TODO: more character espaces
-
-stringLexer :: Parser Token
+stringLexer :: Parser Lexeme
 stringLexer = do
   let quote = char '"'
   _ <- quote
@@ -323,15 +331,15 @@ stringLexer = do
       -- HACK: ONLY (`null` / `escaped null`) + `unterminated` results
       --       in an error whose `display line` and `consumed lines` differ
       | "\\\0" `isInfixOf` str -> do
-          pure $ TError lines (lines + skippedLines) "String contains escaped null character."
+          pure $ LError lines (lines + skippedLines) "String contains escaped null character."
       | '\0' `elem` str -> do
-          pure $ TError lines (lines + skippedLines) "String contains null character."
+          pure $ LError lines (lines + skippedLines) "String contains null character."
       | Just (_, errorMessage) <- maybeErrorMessage -> do
-          pure $ join TError (lines + skippedLines) errorMessage
+          pure $ join LError (lines + skippedLines) errorMessage
       | length str > 1024 -> do
-          pure $ join TError lines "String constant too long"
+          pure $ join LError lines "String constant too long"
       | otherwise -> do
-          pure $ TString lines $ T.pack str
+          pure $ LString lines $ T.pack str
  where
   escapedCharLexer :: Parser (Int, String)
   escapedCharLexer = do
@@ -348,5 +356,5 @@ stringLexer = do
       '\0' -> (0, "\\\0")
       _ -> (0, [ch])
 
-invalidCharLexer :: Parser Token
-invalidCharLexer = join TError 0 . T.pack . pure <$> anyChar
+invalidCharLexer :: Parser Lexeme
+invalidCharLexer = join LError 0 . T.pack . pure <$> anyChar
