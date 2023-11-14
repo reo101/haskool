@@ -1,75 +1,69 @@
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# HLINT ignore "Use <$>" #-}
 {-# HLINT ignore "Use let" #-}
-{-# OPTIONS_GHC -Wno-missing-signatures #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Haskool.Test.HaskoolSpec (
   spec,
 ) where
 
-import Control.Lens.Properties (isTraversal)
-import Data.Foldable (sequenceA_, traverse_)
-import Data.Maybe (fromJust)
-import GHC.Generics (Generic)
+import Data.Foldable (traverse_)
+import Test.HUnit.Lang (
+  FailureReason (Reason),
+  HUnitFailure (..),
+ )
 import Test.Hspec (
   Spec,
   describe,
   it,
   runIO,
-  shouldBe,
-  shouldNotSatisfy,
   shouldSatisfy,
  )
-import Test.Hspec.QuickCheck (prop)
 import Test.QuickCheck (
-  Arbitrary (arbitrary),
-  CoArbitrary,
-  Function,
-  Gen,
   Testable (property),
-  chooseInt,
-  forAll,
-  oneof,
-  withMaxSuccess,
  )
 
-import Lexer (Lexeme, lexer)
+import Control.Exception (catch, throw)
+import Data.Text qualified as T
 import Text.Printf (printf)
 import Utils.FS (
   Test (..),
-  listFilesInDirectory,
   pairUpTestCases,
  )
 import Utils.Pretty (
   lexAndPrettyPrint,
   lexParseAndPrettyPrint,
+  wrapAndIntersperse,
  )
 
 spec :: Spec
 spec = do
   test_Lexer
   -- test_Parser
+  pure ()
+
+test :: String -> String -> FilePath -> ((FilePath, T.Text) -> T.Text) -> Spec
+test name testInfix directory prepare = describe name do
+  testPairs <- runIO $ pairUpTestCases testInfix directory
+  traverse_
+    ( \Test{sourceFile, sourceCode, outputs} -> do
+        it (printf "Test %s" sourceFile) $ property do
+          let result = prepare (sourceFile, sourceCode)
+          (result `shouldSatisfy` (`elem` outputs))
+            `catch` \(HUnitFailure loc (Reason msg)) -> do
+              throw $
+                HUnitFailure loc $
+                  Reason $
+                    printf
+                      "Old message: %s\nGot:\n%s\nWanted one of:\n%s"
+                      msg
+                      result
+                      (wrapAndIntersperse "---\n" "---\n" "---\n" $ T.unpack <$> outputs)
+    )
+    testPairs
 
 test_Lexer :: Spec
-test_Lexer = describe "Haskool Lexer" do
-  testFiles <- runIO $ listFilesInDirectory "./test/data/01"
-  testPairs <- runIO $ pairUpTestCases testFiles
-  traverse_
-    ( \Test{sourceFile, sourceCode, output} -> do
-        it (printf "Test %s" sourceFile) $ property do
-          lexAndPrettyPrint (sourceFile, sourceCode) `shouldBe` output
-    )
-    testPairs
+test_Lexer = test "Haskool Lexer" ".out" "./test/data/01" lexAndPrettyPrint
 
 test_Parser :: Spec
-test_Parser = describe "Haskool Parser" do
-  testFiles <- runIO $ listFilesInDirectory "./test/data/02"
-  testPairs <- runIO $ pairUpTestCases testFiles
-  traverse_
-    ( \Test{sourceFile, sourceCode, output} -> do
-        it (printf "Test %s" sourceFile) $ property do
-          lexParseAndPrettyPrint (sourceFile, sourceCode) `shouldBe` output
-    )
-    testPairs
+test_Parser = test "Haskool Parser" ".out" "./test/data/02" lexParseAndPrettyPrint

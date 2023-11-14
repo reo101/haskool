@@ -110,9 +110,11 @@
           dependencies = [
             "QuickCheck" # ^>= 2.12"
             "quickcheck-instances"
+            "HUnit"
             "hspec" # ^>= 2.11"
             "hspec-discover" # ^>= 2.11"
             "lens-properties" # ^>= 4.11"
+            "text"
           ];
         };
       };

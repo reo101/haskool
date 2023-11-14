@@ -6,38 +6,43 @@ module Utils.FS (
   pairUpTestCases,
 ) where
 
+import Control.Applicative (Applicative (..))
 import Control.Monad (filterM)
-import Data.List.Extra (chunksOf, sort)
+import Data.List.Extra (isInfixOf, isPrefixOf)
 import Data.Text qualified as T
+import Data.Text.IO qualified as T
 import System.Directory (doesFileExist, listDirectory)
 import System.FilePath ((</>))
-import System.IO.Extra (readFile')
 
 listFilesInDirectory :: FilePath -> IO [FilePath]
 listFilesInDirectory dir = do
   contents <- listDirectory dir
-  let fileNames = filterM doesFileExist (map (dir </>) contents)
-  fileNames
+  let files = filterM doesFileExist $ (dir </>) <$> contents
+  files
 
 data Test where
   Test ::
     { sourceFile :: FilePath
     , sourceCode :: T.Text
-    , output :: T.Text
+    , outputs :: [T.Text]
     } ->
     Test
+  deriving stock (Show)
 
-pairUpTestCases :: [FilePath] -> IO [Test]
-pairUpTestCases testFiles = do
+pairUpTestCases :: String -> FilePath -> IO [Test]
+pairUpTestCases testInfix directory = do
+  testFiles <- listFilesInDirectory directory
+  let sourceFiles = filter (\testFile -> not $ testInfix `isInfixOf` testFile) testFiles
   traverse
-    ( \[sourceFile, outputFile] -> do
-        sourceCode <- T.pack <$> readFile' sourceFile
-        output <- T.pack <$> readFile' outputFile
+    ( \sourceFile -> do
+        sourceCode <- T.readFile sourceFile
+        let outputFiles = filter (liftA2 (&&) (/= sourceFile) (sourceFile `isPrefixOf`)) testFiles
+        outputs <- traverse T.readFile outputFiles
         pure $
           Test
             { sourceFile
             , sourceCode
-            , output
+            , outputs
             }
     )
-    (chunksOf 2 $ sort testFiles)
+    sourceFiles

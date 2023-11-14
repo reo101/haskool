@@ -130,11 +130,13 @@ test-suite haskool-test
       ViewPatterns
   ghc-options: -Wall -Wunused-type-patterns -Wunused-packages -Wmissing-deriving-strategies -Wredundant-constraints -Widentities -Wmissing-export-lists -Wno-name-shadowing -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      QuickCheck
+      HUnit
+    , QuickCheck
     , base ==4.*
     , haskool
     , hspec
     , hspec-discover
     , lens-properties
     , quickcheck-instances
+    , text
   default-language: GHC2021

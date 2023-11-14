@@ -1,4 +1,5 @@
 module Utils.Pretty (
+  wrapAndIntersperse,
   lexAndPrettyPrint,
   lexParseAndPrettyPrint,
   prettyPrintLexeme,
@@ -7,12 +8,16 @@ module Utils.Pretty (
 import Control.Lens (Field1 (_1), Field2 (_2), use, (%=), (+=), (^.))
 import Control.Monad.State (State, evalState)
 import Data.Char (toLower)
+import Data.List (intercalate, intersperse)
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Lexer (Lexeme (..), lexer)
 import Numeric (showOct)
 import System.FilePath.Lens (filename)
 import Text.Printf (printf)
+
+wrapAndIntersperse :: String -> String -> String -> [String] -> String
+wrapAndIntersperse left middle right xs = left ++ intercalate middle xs ++ right
 
 lexParseAndPrettyPrint :: (FilePath, T.Text) -> T.Text
 lexParseAndPrettyPrint (sourceFile, sourceCode) = undefined
