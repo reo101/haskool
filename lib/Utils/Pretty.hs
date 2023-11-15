@@ -1,5 +1,5 @@
 module Utils.Pretty (
-  wrapAndIntersperse,
+  wrapAndIntercalate,
   lexAndPrettyPrint,
   lexParseAndPrettyPrint,
   prettyPrintLexeme,
@@ -15,22 +15,46 @@ import Lexer (Lexeme (..), lexer)
 import Numeric (showOct)
 import System.FilePath.Lens (filename)
 import Text.Printf (printf)
+import Text.Megaparsec (
+  parse,
+ )
+import Parser.Types (
+  SBinding (..),
+  SCaseProng (..),
+  SProgram (..),
+  SClass (..),
+  SFeature (..),
+  SFormal (..),
+  SExpr (..),
+  )
+import Parser (parser)
+import Data.Either.Extra (fromRight')
 
-wrapAndIntersperse :: String -> String -> String -> [String] -> String
-wrapAndIntersperse left middle right xs = left ++ intercalate middle xs ++ right
+wrapAndIntercalate :: String -> String -> String -> [String] -> String
+wrapAndIntercalate left middle right xs = left ++ intercalate middle xs ++ right
 
 lexParseAndPrettyPrint :: (FilePath, T.Text) -> T.Text
-lexParseAndPrettyPrint (sourceFile, sourceCode) = undefined
+lexParseAndPrettyPrint (sourceFile, sourceCode) =
+  T.unlines prettyLines
+ where
+  lexemes :: [Lexeme]
+  lexemes = lexer sourceCode
+
+  ast :: SProgram
+  ast = fromRight' $ parse parser sourceFile lexemes
+
+  prettyLines :: [T.Text]
+  prettyLines = pure $ T.pack $ show ast
 
 lexAndPrettyPrint :: (FilePath, T.Text) -> T.Text
 lexAndPrettyPrint (sourceFile, sourceCode) =
   T.unlines $ header : prettyLines
  where
-  tokens :: [Lexeme]
-  tokens = lexer sourceCode
+  lexemes :: [Lexeme]
+  lexemes = lexer sourceCode
 
   prettyLines :: [T.Text]
-  prettyLines = evalState linenize (1, tokens)
+  prettyLines = evalState linenize (1, lexemes)
 
   header :: T.Text
   header =
@@ -52,8 +76,8 @@ linenize = do
  where
   takeLexeme :: State (Int, [Lexeme]) (Maybe Lexeme)
   takeLexeme = do
-    tokens <- use _2
-    case listToMaybe tokens of
+    lexemes <- use _2
+    case listToMaybe lexemes of
       Nothing -> do
         pure Nothing
       Just token -> do

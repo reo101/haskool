@@ -33,13 +33,13 @@ import Utils.FS (
 import Utils.Pretty (
   lexAndPrettyPrint,
   lexParseAndPrettyPrint,
-  wrapAndIntersperse,
+  wrapAndIntercalate,
  )
 
 spec :: Spec
 spec = do
-  test_Lexer
-  -- test_Parser
+  -- test_Lexer
+  test_Parser
   pure ()
 
 test :: String -> String -> FilePath -> ((FilePath, T.Text) -> T.Text) -> Spec
@@ -58,7 +58,7 @@ test name testInfix directory prepare = describe name do
                       "Old message: %s\nGot:\n%s\nWanted one of:\n%s"
                       msg
                       result
-                      (wrapAndIntersperse "---\n" "---\n" "---\n" $ T.unpack <$> outputs)
+                      (wrapAndIntercalate "---\n" "---\n" "---\n" $ T.unpack <$> outputs)
     )
     testPairs
 
