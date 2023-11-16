@@ -17,7 +17,7 @@ import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Void (Void)
-import Lexer (Lexeme (..))
+import Lexer (Lexeme (..), lexer)
 import Parser.Types (
   SBinding (..),
   SCaseProng (..),
@@ -97,16 +97,16 @@ classParser = do
   _ <- whitespace
   name <- typeIdLexemeParser
   _ <- whitespace
-  parent <- optional do
+  parent <- optional $ try do
     _ <- single LInherits
     _ <- whitespace
     typeId <- typeIdLexemeParser
     _ <- whitespace
     pure typeId
   _ <- single (LSymbol '{')
-  _ <- try $ optional whitespace
+  _ <- optional whitespace
   features <- many $ featureParser <* semicolonSeparator
-  _ <- try $ optional whitespace
+  _ <- optional whitespace
   _ <- single (LSymbol '}')
   pure $ SClass{name, parent, features}
 
@@ -154,9 +154,7 @@ featureParser = choice [featureMethodParser, featureMemberParser]
     fidentifier <- objectIdLexemeParser
     _ <- optional whitespace
     fformals <- betweenParenthesis $ formalParser `sepBy` try commaSeparator
-    _ <- optional whitespace
     _ <- colonSeparator
-    _ <- optional whitespace
     ftype <- typeIdLexemeParser
     _ <- optional whitespace
     _ <- single $ LSymbol '{'
@@ -203,7 +201,7 @@ operators =
   methodCallSuffixParser =
     recursiveUnaryOperatorParser
       do
-        mtype <- optional do
+        mtype <- optional $ try do
           _ <- single $ LSymbol '@'
           typeIdLexemeParser
         _ <- single $ LSymbol '.'
@@ -230,7 +228,7 @@ expressionParser = do
     flip makeExprParser operators $
       choice
         [ assignmentParser
-        , functionCallParser
+        , selfMethodCallParser
         , ifThenElseParser
         , whileParser
         , blockParser
@@ -252,33 +250,50 @@ bindingParser = do
   bidentifier <- objectIdLexemeParser
   _ <- colonSeparator
   btype <- typeIdLexemeParser
-  bbody <- optional do
+  bbody <- optional $ try do
+    _ <- optional whitespace
     _ <- lexemeSeparator LAssign
+    _ <- optional whitespace
     expressionParser
   pure $ SBinding{bidentifier, btype, bbody}
 
 assignmentParser :: Parser SExpr
 assignmentParser = do
   aid <- objectIdLexemeParser
-  _ <- whitespace
+  _ <- optional whitespace
   _ <- single LAssign
+  _ <- optional whitespace
   abody <- expressionParser
   pure $ SEAssignment{aid, abody}
 
-functionCallParser :: Parser SExpr
-functionCallParser = do
-  fcallee <- objectIdLexemeParser
-  farguments <- betweenParenthesis argumentsParser
-  pure $ SEFunctionCall{fcallee, farguments}
+selfMethodCallParser :: Parser SExpr
+selfMethodCallParser = do
+  mname <- objectIdLexemeParser
+  -- TODO: can it be optional?
+  _ <- optional whitespace
+  marguments <- betweenParenthesis argumentsParser
+  pure $
+    SEMethodCall
+      { mcallee = SEIdentifier{iid = "self"}
+      , mtype = Nothing
+      , mname
+      , marguments
+      }
 
 ifThenElseParser :: Parser SExpr
 ifThenElseParser = do
   _ <- single LIf
+  _ <- whitespace
   iif <- expressionParser
+  _ <- whitespace
   _ <- single LThen
+  _ <- whitespace
   ithen <- expressionParser
+  _ <- whitespace
   _ <- single LElse
+  _ <- whitespace
   ielse <- expressionParser
+  _ <- whitespace
   _ <- single LFi
   pure $ SEIfThenElse{iif, ithen, ielse}
 
@@ -294,24 +309,33 @@ whileParser = do
 blockParser :: Parser SExpr
 blockParser = do
   _ <- single $ LSymbol '{'
+  _ <- optional whitespace
   bexpressions <- expressionParser `NE.endBy1` try semicolonSeparator
+  _ <- optional whitespace
   _ <- single $ LSymbol '}'
   pure $ SEBlock{bexpressions}
 
 letBindingParser :: Parser SExpr
 letBindingParser = do
   _ <- single LLet
+  _ <- optional whitespace
   lbindings <- bindingParser `NE.sepBy1` try commaSeparator
+  _ <- optional whitespace
   _ <- single LIn
+  _ <- optional whitespace
   lbody <- expressionParser
   pure $ SELetIn{lbindings, lbody}
 
 caseParser :: Parser SExpr
 caseParser = do
   _ <- single LCase
+  _ <- optional whitespace
   cexpr <- expressionParser
+  _ <- optional whitespace
   _ <- single LOf
+  _ <- optional whitespace
   cprongs <- caseProngParser `NE.sepBy1` try semicolonSeparator
+  _ <- optional whitespace
   _ <- single LEsac
   pure $ SECase{cexpr, cprongs}
  where
@@ -362,23 +386,3 @@ boolParser :: Parser SExpr
 boolParser = do
   bbool <- boolLexemeParser
   pure $ SEBool{bbool}
-
----
-
-someProgram :: T.Text
-someProgram = "class Main inherits \nKek { kek : Banica; fibonacci() : Kek { mqu + 1.banica(2) }; };\n\n\n\n\n\n"
-
--- >>> parse programParser "kek" $ lexer someProgram
--- Right (SProgram (SClass {name = "Main", parent = Just "Kek", features = [SFeatureMember (SBinding {bidentifier = "kek", btype = "Banica", bbody = Nothing}),SFeatureMethod {fidentifier = "fibonacci", fformals = [], ftype = "Kek", fbody = SEPlus {pleft = SEIdentifier {iid = "mqu"}, pright = SEMethodCall {mcallee = SEInteger {iint = 1}, mtype = Nothing, mname = "banica", marguments = [SEInteger {iint = 2}]}}}]} :| []))
-
--- >>> parse featureParser "kek" $ lexer "fibonacci() : Kek { mqu }"
--- Right (SFeatureMethod {fidentifier = "fibonacci", fformals = [], ftype = "Kek", fbody = SEIdentifier {iid = "mqu"}})
-
--- >>> parse expressionParser "123" $ lexer "a.b(1)+c(2,3).d().e(\"kek\")"
--- Right (SEPlus {pleft = SEMethodCall {mcallee = SEIdentifier {iid = "a"}, mtype = Nothing, mname = "b", marguments = [SEInteger {iint = 1}]}, pright = SEMethodCall {mcallee = SEMethodCall {mcallee = SEFunctionCall {fcallee = "c", farguments = [SEInteger {iint = 2},SEInteger {iint = 3}]}, mtype = Nothing, mname = "d", marguments = []}, mtype = Nothing, mname = "e", marguments = [SEString {sstring = "kek"}]}})
-
--- >>> parse expressionParser "123" $ lexer "not not true"
--- Right (SENot {nexpr = SENot {nexpr = SEIdentifier {iid = "true"}}})
-
--- >>> parse expressionParser "123" $ lexer "a(   1, 2   , 3    )"
--- Right (SEFunctionCall {fcallee = "a", farguments = [SEInteger {iint = 1},SEInteger {iint = 2},SEInteger {iint = 3}]})

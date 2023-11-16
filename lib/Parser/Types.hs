@@ -37,7 +37,8 @@ data SCaseProng where
 
 data SProgram where
   SProgram ::
-    NonEmpty SClass ->
+    { pclasses :: NonEmpty SClass
+    } ->
     SProgram
   deriving stock (Show)
 
@@ -82,11 +83,6 @@ data SExpr where
     , mtype :: Maybe T.Text
     , mname :: T.Text
     , marguments :: [SExpr]
-    } ->
-    SExpr
-  SEFunctionCall ::
-    { fcallee :: T.Text
-    , farguments :: [SExpr]
     } ->
     SExpr
   SEIfThenElse ::
@@ -148,7 +144,7 @@ data SExpr where
     SExpr
   SELt ::
     { lleft :: SExpr
-    , light :: SExpr
+    , lright :: SExpr
     } ->
     SExpr
   SELte ::
