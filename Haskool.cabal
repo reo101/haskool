@@ -25,6 +25,8 @@ library
       Regex.Atto
       Utils.FS
       Utils.Pretty
+      Utils.Pretty.Lexer
+      Utils.Pretty.Parser
   other-modules:
       Paths_haskool
   hs-source-dirs:

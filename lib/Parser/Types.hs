@@ -19,7 +19,8 @@ import Data.Text qualified as T
 
 data SBinding where
   SBinding ::
-    { bidentifier :: T.Text
+    { endLine :: Int
+    , bidentifier :: T.Text
     , btype :: T.Text
     , bbody :: Maybe SExpr
     } ->
@@ -28,7 +29,8 @@ data SBinding where
 
 data SCaseProng where
   SCaseProng ::
-    { pidenifier :: T.Text
+    { endLine :: Int
+    , pidenifier :: T.Text
     , ptype :: T.Text
     , pbody :: SExpr
     } ->
@@ -37,14 +39,16 @@ data SCaseProng where
 
 data SProgram where
   SProgram ::
-    { pclasses :: NonEmpty SClass
+    { endLine :: Int
+    , pclasses :: NonEmpty SClass
     } ->
     SProgram
   deriving stock (Show)
 
 data SClass where
   SClass ::
-    { name :: T.Text
+    { endLine :: Int
+    , name :: T.Text
     , parent :: Maybe T.Text
     , features :: [SFeature]
     } ->
@@ -53,10 +57,13 @@ data SClass where
 
 data SFeature where
   SFeatureMember ::
-    SBinding ->
+    { endLine :: Int
+    , fbinding :: SBinding
+    } ->
     SFeature
   SFeatureMethod ::
-    { fidentifier :: T.Text
+    { endLine :: Int
+    , fidentifier :: T.Text
     , fformals :: [SFormal]
     , ftype :: T.Text
     , fbody :: SExpr
@@ -66,7 +73,8 @@ data SFeature where
 
 data SFormal where
   SFormal ::
-    { fidentifier :: T.Text
+    { endLine :: Int
+    , fidentifier :: T.Text
     , ftype :: T.Text
     } ->
     SFormal
@@ -74,111 +82,134 @@ data SFormal where
 
 data SExpr where
   SEAssignment ::
-    { aid :: T.Text
+    { endLine :: Int
+    , aid :: T.Text
     , abody :: SExpr
     } ->
     SExpr
   SEMethodCall ::
-    { mcallee :: SExpr
+    { endLine :: Int
+    , mcallee :: SExpr
     , mtype :: Maybe T.Text
     , mname :: T.Text
     , marguments :: [SExpr]
     } ->
     SExpr
   SEIfThenElse ::
-    { iif :: SExpr
+    { endLine :: Int
+    , iif :: SExpr
     , ithen :: SExpr
     , ielse :: SExpr
     } ->
     SExpr
   SEWhile ::
-    { wif :: SExpr
+    { endLine :: Int
+    , wif :: SExpr
     , wloop :: SExpr
     } ->
     SExpr
   SEBlock ::
-    { bexpressions :: NonEmpty SExpr
+    { endLine :: Int
+    , bexpressions :: NonEmpty SExpr
     } ->
     SExpr
   SELetIn ::
-    { lbindings :: NonEmpty SBinding
+    { endLine :: Int
+    , lbindings :: NonEmpty SBinding
     , lbody :: SExpr
     } ->
     SExpr
   SECase ::
-    { cexpr :: SExpr
+    { endLine :: Int
+    , cexpr :: SExpr
     , cprongs :: NonEmpty SCaseProng
     } ->
     SExpr
   SENew ::
-    { ntype :: T.Text
+    { endLine :: Int
+    , ntype :: T.Text
     } ->
     SExpr
   SEIsVoid ::
-    { iexpr :: SExpr
+    { endLine :: Int
+    , iexpr :: SExpr
     } ->
     SExpr
   SEPlus ::
-    { pleft :: SExpr
+    { endLine :: Int
+    , pleft :: SExpr
     , pright :: SExpr
     } ->
     SExpr
   SEMinus ::
-    { mleft :: SExpr
+    { endLine :: Int
+    , mleft :: SExpr
     , mright :: SExpr
     } ->
     SExpr
   SETimes ::
-    { tleft :: SExpr
+    { endLine :: Int
+    , tleft :: SExpr
     , tright :: SExpr
     } ->
     SExpr
   SEDivide ::
-    { dleft :: SExpr
+    { endLine :: Int
+    , dleft :: SExpr
     , dright :: SExpr
     } ->
     SExpr
   SETilde ::
-    { texpr :: SExpr
+    { endLine :: Int
+    , texpr :: SExpr
     } ->
     SExpr
   SELt ::
-    { lleft :: SExpr
+    { endLine :: Int
+    , lleft :: SExpr
     , lright :: SExpr
     } ->
     SExpr
   SELte ::
-    { lleft :: SExpr
+    { endLine :: Int
+    , lleft :: SExpr
     , lright :: SExpr
     } ->
     SExpr
   SEEquals ::
-    { eleft :: SExpr
+    { endLine :: Int
+    , eleft :: SExpr
     , eright :: SExpr
     } ->
     SExpr
   SENot ::
-    { nexpr :: SExpr
+    { endLine :: Int
+    , nexpr :: SExpr
     } ->
     SExpr
   SEBracketed ::
-    { bexpr :: SExpr
+    { endLine :: Int
+    , bexpr :: SExpr
     } ->
     SExpr
   SEIdentifier ::
-    { iid :: T.Text
+    { endLine :: Int
+    , iid :: T.Text
     } ->
     SExpr
   SEInteger ::
-    { iint :: Integer
+    { endLine :: Int
+    , iint :: Integer
     } ->
     SExpr
   SEString ::
-    { sstring :: T.Text
+    { endLine :: Int
+    , sstring :: T.Text
     } ->
     SExpr
   SEBool ::
-    { bbool :: Bool
+    { endLine :: Int
+    , bbool :: Bool
     } ->
     SExpr
   deriving stock (Show)
