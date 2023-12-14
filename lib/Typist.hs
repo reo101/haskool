@@ -5,6 +5,7 @@
 
 {-# HLINT ignore "Redundant $" #-}
 {-# HLINT ignore "Redundant pure" #-}
+{-# HLINT ignore "Avoid lambda" #-}
 
 module Typist (
   ) where
@@ -19,16 +20,18 @@ import Control.Monad.Combinators.NonEmpty qualified as NE (endBy1, sepBy1)
 import Data.Coerce (coerce)
 import Data.Either.Extra (maybeToEither)
 import Data.Foldable (traverse_)
-import Data.List.NonEmpty as NE (NonEmpty (..), toList)
-import Data.List.NonEmpty qualified as NE (last)
+import Data.List.NonEmpty as NE (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE (toList, filter, zip, last)
 import Data.List.NonEmpty.Extra qualified as NE (nonEmpty)
-import Data.Map (Map, insert, (!), (!?))
+import Data.Map qualified as M (Map, insert, (!), (!?), fromList, union, empty)
 import Data.Map.NonEmpty (NEMap)
 import Data.Map.NonEmpty qualified as NEM (
   fromList,
   insertWith,
   singleton,
   toList,
+  (!),
+  (!?), foldr,
  )
 import Data.Maybe (fromMaybe)
 import Data.Maybe.HT (toMaybe)
@@ -55,17 +58,45 @@ import Typist.Types (
   classHierarchy,
   currentClass,
   identifierTypes,
-  methodTypes,
+  methodTypes, O, Identifier,
  )
 import Utils.Algorithms (
   dagToTree,
   lca,
   subtype,
  )
+import Control.Arrow (Arrow(second, (***)))
 
 -- NOTE:
 --  first pass - set of all defined classes
 --  second pass - optimized GD constuction (with early return for nonexistant inherited types)
+
+extendO :: NonEmpty SClass -> NEMap Class Class -> NEMap Class O
+extendO classes dg = NEM.fromList $ ((.name) *** handler) <$> NE.zip classes inheritancePaths
+  where
+
+    inheritancePaths :: NonEmpty [Class]
+    inheritancePaths = reverse . goUp . (.name) <$> classes
+
+    -- [Object, Shape, Rectangle, Square]
+    -- Ractangle { x: Char }
+    -- Square { x: Int, y : Char }
+
+    -- TODO: Separate namespaces between class functions and class fields
+    handler :: [Class] -> O
+    handler classes' = let features = (M.fromList . (f <$>) . (.features) <$> NE.filter (\x -> x.name `elem` classes') classes) in
+      foldr (\acc curr -> acc `M.union` curr) M.empty features
+
+    f :: SFeature -> (Identifier, Type)
+    f = \case
+      SFeatureMember {fbinding = SBinding {bidentifier, btype}} -> (bidentifier, btype)
+      SFeatureMethod {fidentifier, ftype} -> (fidentifier, ftype)
+
+    goUp :: Class -> [Class]
+    goUp name = case dg NEM.!? name of
+      Just parent -> name : goUp parent
+      Nothing -> [name]
+
 
 allClassesWithParents :: NonEmpty SProgram -> Either String (NEMap Class Class)
 allClassesWithParents programs =
@@ -108,7 +139,7 @@ typecheckSExpr :: Context -> SExpr -> Either String Type
 typecheckSExpr context = \case
   SEIdentifier _ iid -> do
     let maybeVariableType :: Maybe Type
-        maybeVariableType = (context ^. identifierTypes) !? iid
+        maybeVariableType = (context ^. identifierTypes) M.!? iid
      in maybeToEither
           ( printf
               "Unbound variable %s"
@@ -117,7 +148,7 @@ typecheckSExpr context = \case
           maybeVariableType
   SEAssignment _ aid abody -> do
     let maybeVariableType :: Maybe Type
-        maybeVariableType = (context ^. identifierTypes) !? aid
+        maybeVariableType = (context ^. identifierTypes) M.!? aid
     variableType <-
       maybeToEither
         ( printf
@@ -152,7 +183,7 @@ typecheckSExpr context = \case
           | otherwise = calleeType
     methodType <-
       let maybeMethodType :: Maybe (NonEmpty Type)
-          maybeMethodType = (context ^. methodTypes) !? (realCalleeType, mname)
+          maybeMethodType = (context ^. methodTypes) M.!? (realCalleeType, mname)
        in maybeToEither
             ( printf
                 "No such method '%s' for class '%s'"
@@ -184,7 +215,7 @@ typecheckSExpr context = \case
       )
     methodType <-
       let maybeMethodType :: Maybe (NonEmpty Type)
-          maybeMethodType = (context ^. methodTypes) !? (calleeType, mname)
+          maybeMethodType = (context ^. methodTypes) M.!? (calleeType, mname)
        in maybeToEither
             ( printf
                 "No such method '%s' for class '%s'"
@@ -240,7 +271,7 @@ typecheckSExpr context = \case
         letBodyType <-
           typecheckSExpr
             ( context
-                & identifierTypes %~ insert bidentifier realBindingType
+                & identifierTypes %~ M.insert bidentifier realBindingType
             )
             letBody
         pure $ letBodyType
@@ -248,7 +279,7 @@ typecheckSExpr context = \case
         letBodyType <-
           typecheckSExpr
             ( context
-                & identifierTypes %~ insert bidentifier realBindingType
+                & identifierTypes %~ M.insert bidentifier realBindingType
             )
             letBody
         pure $ letBodyType
@@ -259,7 +290,7 @@ typecheckSExpr context = \case
         ( \(SCaseProng _ pidenifier ptype pbody) ->
             typecheckSExpr
               ( context
-                  & identifierTypes %~ insert pidenifier ptype
+                  & identifierTypes %~ M.insert pidenifier ptype
               )
               pbody
         )
@@ -427,7 +458,7 @@ typecheckFeature context = \case
   SFeatureMember{fbinding = SBinding{bidentifier, btype, bbody = Just bbody}} -> do
     methodType <-
       let maybeMemberType :: Maybe Type
-          maybeMemberType = (context ^. identifierTypes) !? bidentifier
+          maybeMemberType = (context ^. identifierTypes) M.!? bidentifier
        in maybeToEither
             ( printf
                 "No such member '%s' for class '%s'"
@@ -435,7 +466,7 @@ typecheckFeature context = \case
                 (context ^. currentClass)
             )
             maybeMemberType
-    bodyType <- typecheckSExpr (context & identifierTypes %~ insert "self" (context ^. currentClass)) bbody
+    bodyType <- typecheckSExpr (context & identifierTypes %~ M.insert "self" (context ^. currentClass)) bbody
     early
       (subtype (context ^. classHierarchy) bodyType methodType)
       ( printf
@@ -447,7 +478,7 @@ typecheckFeature context = \case
   SFeatureMember{fbinding = SBinding{bidentifier, btype, bbody = Nothing}} -> do
     methodType <-
       let maybeMemberType :: Maybe Type
-          maybeMemberType = (context ^. identifierTypes) !? bidentifier
+          maybeMemberType = (context ^. identifierTypes) M.!? bidentifier
        in maybeToEither
             ( printf
                 "No such member '%s' for class '%s'"
@@ -460,7 +491,7 @@ typecheckFeature context = \case
     let (argumentNames, argumentTypes) = unzip $ (\SFormal{fidentifier, ftype} -> (fidentifier, ftype)) <$> fformals
     methodType <-
       let maybeMethodType :: Maybe (NonEmpty Type)
-          maybeMethodType = (context ^. methodTypes) !? (context ^. currentClass, fidentifier)
+          maybeMethodType = (context ^. methodTypes) M.!? (context ^. currentClass, fidentifier)
        in maybeToEither
             ( printf
                 "No such method '%s' for class '%s'"
@@ -479,8 +510,8 @@ typecheckFeature context = \case
     bodyType <-
       typecheckSExpr
         ( context
-            & identifierTypes %~ insert "self" (context ^. currentClass)
-            & identifierTypes %~ (\m -> foldr (uncurry insert) m (zip argumentNames methodArgumentTypes))
+            & identifierTypes %~ M.insert "self" (context ^. currentClass)
+            & identifierTypes %~ (\m -> foldr (uncurry M.insert) m (zip argumentNames methodArgumentTypes))
             & identifierTypes %~ undefined -- TODO: petrakis atanasos (A HELLENIC MAN)
         )
         fbody
