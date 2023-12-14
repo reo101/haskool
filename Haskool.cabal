@@ -23,6 +23,7 @@ library
       Parser
       Parser.Types
       Regex.Atto
+      Utils.Algorithms
       Utils.FS
       Utils.Pretty
       Utils.Pretty.Lexer
