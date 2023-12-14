@@ -29,6 +29,7 @@
         buildInputs = with pkgs; [
           mktemp
           alex
+          haskellPackages.hoogle
         ];
       };
 
@@ -95,6 +96,7 @@
             "extra"
             "filepath"
             "fixed-vector" "lens"
+            "free"
             "megaparsec"
             "mtl"
             "nonempty-containers"

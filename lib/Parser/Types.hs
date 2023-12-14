@@ -1,4 +1,5 @@
 module Parser.Types (
+  ExtraInfo(..),
   SBinding (..),
   SCaseProng (..),
   SProgram (..),
@@ -11,15 +12,24 @@ where
 
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text qualified as T
+import Typist.Types (Type)
 
 -- NOTE: Strings in COOL may only be up to 1024 characters
 -- Consider wrapping the SConstant type in Either
 -- TODO: There are more restrictions on strings which must be taken into account.
 -- https://theory.stanford.edu/~aiken/software/cool/cool-manual.pdf
 
+data ExtraInfo where
+  ExtraInfo ::
+    { endLine :: Int
+    , typeName :: Maybe Type
+    } ->
+    ExtraInfo
+  deriving stock (Show)
+
 data SBinding where
   SBinding ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , bidentifier :: T.Text
     , btype :: T.Text
     , bbody :: Maybe SExpr
@@ -29,7 +39,7 @@ data SBinding where
 
 data SCaseProng where
   SCaseProng ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , pidenifier :: T.Text
     , ptype :: T.Text
     , pbody :: SExpr
@@ -39,7 +49,7 @@ data SCaseProng where
 
 data SProgram where
   SProgram ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , pclasses :: NonEmpty SClass
     } ->
     SProgram
@@ -47,7 +57,7 @@ data SProgram where
 
 data SClass where
   SClass ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , name :: T.Text
     , parent :: Maybe T.Text
     , features :: [SFeature]
@@ -57,12 +67,12 @@ data SClass where
 
 data SFeature where
   SFeatureMember ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , fbinding :: SBinding
     } ->
     SFeature
   SFeatureMethod ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , fidentifier :: T.Text
     , fformals :: [SFormal]
     , ftype :: T.Text
@@ -73,7 +83,7 @@ data SFeature where
 
 data SFormal where
   SFormal ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , fidentifier :: T.Text
     , ftype :: T.Text
     } ->
@@ -82,13 +92,13 @@ data SFormal where
 
 data SExpr where
   SEAssignment ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , aid :: T.Text
     , abody :: SExpr
     } ->
     SExpr
   SEMethodCall ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , mcallee :: SExpr
     , mtype :: Maybe T.Text
     , mname :: T.Text
@@ -96,119 +106,119 @@ data SExpr where
     } ->
     SExpr
   SEIfThenElse ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , iif :: SExpr
     , ithen :: SExpr
     , ielse :: SExpr
     } ->
     SExpr
   SEWhile ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , wif :: SExpr
     , wloop :: SExpr
     } ->
     SExpr
   SEBlock ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , bexpressions :: NonEmpty SExpr
     } ->
     SExpr
   SELetIn ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , lbindings :: NonEmpty SBinding
     , lbody :: SExpr
     } ->
     SExpr
   SECase ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , cexpr :: SExpr
     , cprongs :: NonEmpty SCaseProng
     } ->
     SExpr
   SENew ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , ntype :: T.Text
     } ->
     SExpr
   SEIsVoid ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , iexpr :: SExpr
     } ->
     SExpr
   SEPlus ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , pleft :: SExpr
     , pright :: SExpr
     } ->
     SExpr
   SEMinus ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , mleft :: SExpr
     , mright :: SExpr
     } ->
     SExpr
   SETimes ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , tleft :: SExpr
     , tright :: SExpr
     } ->
     SExpr
   SEDivide ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , dleft :: SExpr
     , dright :: SExpr
     } ->
     SExpr
   SETilde ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , texpr :: SExpr
     } ->
     SExpr
   SELt ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , lleft :: SExpr
     , lright :: SExpr
     } ->
     SExpr
   SELte ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , lleft :: SExpr
     , lright :: SExpr
     } ->
     SExpr
   SEEquals ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , eleft :: SExpr
     , eright :: SExpr
     } ->
     SExpr
   SENot ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , nexpr :: SExpr
     } ->
     SExpr
   SEBracketed ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , bexpr :: SExpr
     } ->
     SExpr
   SEIdentifier ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , iid :: T.Text
     } ->
     SExpr
   SEInteger ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , iint :: Integer
     } ->
     SExpr
   SEString ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , sstring :: T.Text
     } ->
     SExpr
   SEBool ::
-    { endLine :: Int
+    { extraInfo :: ExtraInfo
     , bbool :: Bool
     } ->
     SExpr

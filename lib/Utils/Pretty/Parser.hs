@@ -16,6 +16,7 @@ import Data.Text qualified as T
 import Lexer (Lexeme (..), lexer)
 import Parser (parser)
 import Parser.Types (
+  ExtraInfo (..),
   SBinding (..),
   SCaseProng (..),
   SClass (..),
@@ -82,7 +83,7 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
 
   prettyPrintSFeature :: SFeature -> [T.Text]
   prettyPrintSFeature = \case
-    SFeatureMember endLine (SBinding endLine' bidentifier btype bbody) ->
+    SFeatureMember ExtraInfo{endLine, typeName} (SBinding extraInfo' bidentifier btype bbody) ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -93,9 +94,9 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
             , btype
             ]
         , (indent <$>) $
-            prettyPrintMaybeSExpr endLine' bbody
+            prettyPrintMaybeSExpr extraInfo' bbody
         ]
-    SFeatureMethod endLine fidentifier fformals ftype fbody ->
+    SFeatureMethod ExtraInfo{endLine, typeName} fidentifier fformals ftype fbody ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -119,14 +120,14 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
     , indent $ ftype
     ]
 
-  prettyPrintMaybeSExpr :: Int -> Maybe SExpr -> [T.Text]
-  prettyPrintMaybeSExpr endLine = \case
+  prettyPrintMaybeSExpr :: ExtraInfo -> Maybe SExpr -> [T.Text]
+  prettyPrintMaybeSExpr ExtraInfo{endLine, typeName} = \case
     Just sexpr -> prettyPrintSExpr sexpr
-    Nothing -> ["#" <> T.pack (show endLine), "_no_expr", ": _no_type"]
+    Nothing -> ["#" <> T.pack (show endLine), "_no_expr", prettyTypeName typeName]
 
   prettyPrintSExpr :: SExpr -> [T.Text]
   prettyPrintSExpr sexpr = case sexpr of
-    SEAssignment endLine aid abody ->
+    SEAssignment ExtraInfo{endLine, typeName} aid abody ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -138,10 +139,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr abody
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEMethodCall endLine mcallee mtype mname marguments ->
+    SEMethodCall ExtraInfo{endLine, typeName} mcallee mtype mname marguments ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -161,10 +162,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
             <$> [ ")"
                 ]
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEIfThenElse endLine iif ithen ielse ->
+    SEIfThenElse ExtraInfo{endLine, typeName} iif ithen ielse ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -177,10 +178,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr ielse
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEWhile endLine wif wloop ->
+    SEWhile ExtraInfo{endLine, typeName} wif wloop ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -191,10 +192,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr wloop
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEBlock endLine bexpressions ->
+    SEBlock ExtraInfo{endLine, typeName} bexpressions ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -203,34 +204,34 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             NE.toList bexpressions >>= prettyPrintSExpr
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SELetIn endLine lbindings lbody ->
+    SELetIn ExtraInfo{endLine, typeName} lbindings lbody ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
           , "_let"
           ]
         , (indent <$>) $
-            let SBinding{endLine = endLine', btype, bidentifier, bbody} NE.:| rest = lbindings
+            let SBinding{extraInfo = extraInfo', btype, bidentifier, bbody} NE.:| rest = lbindings
              in mconcat
                   [
                     [ bidentifier
                     , btype
                     ]
-                  , prettyPrintMaybeSExpr endLine' bbody
+                  , prettyPrintMaybeSExpr extraInfo' bbody
                   , case NE.nonEmpty rest of
                       Just more ->
-                        prettyPrintSExpr $ SELetIn endLine more lbody
+                        prettyPrintSExpr $ SELetIn ExtraInfo{endLine, typeName} more lbody
                       Nothing ->
                         prettyPrintSExpr $ lbody
                   ]
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SECase endLine cexpr cprongs ->
+    SECase ExtraInfo{endLine, typeName} cexpr cprongs ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -240,7 +241,7 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
             prettyPrintSExpr cexpr
         , (indent <$>) $
             NE.toList cprongs
-              >>= ( \SCaseProng{endLine, ptype, pidenifier, pbody} ->
+              >>= ( \SCaseProng{extraInfo = ExtraInfo{endLine, typeName}, ptype, pidenifier, pbody} ->
                       mconcat
                         [
                           [ "#" <> T.pack (show endLine)
@@ -255,16 +256,16 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
                         ]
                   )
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SENew endLine ntype ->
+    SENew ExtraInfo{endLine, typeName} ntype ->
       [ "#" <> T.pack (show endLine)
       , "_new"
       , indent $ ntype
-      , ": _no_type"
+      , prettyTypeName typeName
       ]
-    SEIsVoid endLine iexpr ->
+    SEIsVoid ExtraInfo{endLine, typeName} iexpr ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -273,10 +274,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr iexpr
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEPlus endLine pleft pright ->
+    SEPlus ExtraInfo{endLine, typeName} pleft pright ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -287,10 +288,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr pright
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEMinus endLine mleft mright ->
+    SEMinus ExtraInfo{endLine, typeName} mleft mright ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -301,10 +302,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr mright
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SETimes endLine tleft tright ->
+    SETimes ExtraInfo{endLine, typeName} tleft tright ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -315,10 +316,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr tright
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEDivide endLine dleft dright ->
+    SEDivide ExtraInfo{endLine, typeName} dleft dright ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -329,10 +330,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr dright
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SETilde endLine texpr ->
+    SETilde ExtraInfo{endLine, typeName} texpr ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -341,10 +342,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr texpr
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SELt endLine lleft lright ->
+    SELt ExtraInfo{endLine, typeName} lleft lright ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -355,10 +356,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr lright
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SELte endLine lleft lright ->
+    SELte ExtraInfo{endLine, typeName} lleft lright ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -369,10 +370,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr lright
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEEquals endLine eleft eright ->
+    SEEquals ExtraInfo{endLine, typeName} eleft eright ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -383,10 +384,10 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr eright
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SENot endLine nexpr ->
+    SENot ExtraInfo{endLine, typeName} nexpr ->
       mconcat
         [
           [ "#" <> T.pack (show endLine)
@@ -395,35 +396,39 @@ lexParseAndPrettyPrint (sourceFile, sourceCode) =
         , (indent <$>) $
             prettyPrintSExpr nexpr
         ,
-          [ ": _no_type"
+          [ prettyTypeName typeName
           ]
         ]
-    SEBracketed endLine bexpr ->
+    SEBracketed ExtraInfo{endLine, typeName} bexpr ->
       prettyPrintSExpr bexpr
-    SEIdentifier endLine iid ->
+    SEIdentifier ExtraInfo{endLine, typeName} iid ->
       [ "#" <> T.pack (show endLine)
       , "_object"
       , indent $ iid
-      , ": _no_type"
+      , prettyTypeName typeName
       ]
-    SEInteger endLine iint ->
+    SEInteger ExtraInfo{endLine, typeName} iint ->
       [ "#" <> T.pack (show endLine)
       , "_int"
       , indent $ T.pack (show iint)
-      , ": _no_type"
+      , prettyTypeName typeName
       ]
-    SEString endLine sstring ->
+    SEString ExtraInfo{endLine, typeName} sstring ->
       [ "#" <> T.pack (show endLine)
       , "_string"
       , indent $ T.pack (show sstring)
-      , ": _no_type"
+      , prettyTypeName typeName
       ]
-    SEBool endLine bbool ->
+    SEBool ExtraInfo{endLine, typeName} bbool ->
       [ "#" <> T.pack (show endLine)
       , "_bool"
       , indent $ if bbool then "1" else "0"
-      , ": _no_type"
+      , prettyTypeName typeName
       ]
 
 indent :: T.Text -> T.Text
 indent = ("  " <>)
+
+prettyTypeName :: Maybe T.Text -> T.Text
+prettyTypeName Nothing = ": _no_type"
+prettyTypeName (Just typeName) = ": " <> typeName

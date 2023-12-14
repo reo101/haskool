@@ -12,6 +12,7 @@ module Typist (
 
 import Control.Applicative (Alternative (..))
 import Control.Applicative.Combinators qualified (choice)
+import Control.Arrow (Arrow (..))
 import Control.Lens (Iso', iso, lens, makeLenses, view, (%~), (&), (+~), (^.))
 import Control.Lens.Combinators (Lens')
 import Control.Monad (foldM, join, void)
@@ -21,17 +22,18 @@ import Data.Coerce (coerce)
 import Data.Either.Extra (maybeToEither)
 import Data.Foldable (traverse_)
 import Data.List.NonEmpty as NE (NonEmpty (..))
-import Data.List.NonEmpty qualified as NE (toList, filter, zip, last)
+import Data.List.NonEmpty qualified as NE (filter, last, toList, zip)
 import Data.List.NonEmpty.Extra qualified as NE (nonEmpty)
-import Data.Map qualified as M (Map, insert, (!), (!?), fromList, union, empty)
+import Data.Map qualified as M (Map, empty, fromList, insert, union, (!), (!?))
 import Data.Map.NonEmpty (NEMap)
 import Data.Map.NonEmpty qualified as NEM (
+  foldr,
   fromList,
   insertWith,
   singleton,
   toList,
   (!),
-  (!?), foldr,
+  (!?),
  )
 import Data.Maybe (fromMaybe)
 import Data.Maybe.HT (toMaybe)
@@ -53,50 +55,46 @@ import Text.Printf (printf)
 import Typist.Types (
   Class,
   Context (..),
+  Identifier,
+  O,
   Tree,
   Type,
   classHierarchy,
   currentClass,
   identifierTypes,
-  methodTypes, O, Identifier,
+  methodTypes,
  )
 import Utils.Algorithms (
   dagToTree,
   lca,
   subtype,
  )
-import Control.Arrow (Arrow(second, (***)))
-
--- NOTE:
---  first pass - set of all defined classes
---  second pass - optimized GD constuction (with early return for nonexistant inherited types)
 
 extendO :: NonEmpty SClass -> NEMap Class Class -> NEMap Class O
 extendO classes dg = NEM.fromList $ ((.name) *** handler) <$> NE.zip classes inheritancePaths
-  where
+ where
+  inheritancePaths :: NonEmpty [Class]
+  inheritancePaths = reverse . goUp . (.name) <$> classes
 
-    inheritancePaths :: NonEmpty [Class]
-    inheritancePaths = reverse . goUp . (.name) <$> classes
+  -- [Object, Shape, Rectangle, Square]
+  -- Ractangle { x: Char }
+  -- Square { x: Int, y : Char }
 
-    -- [Object, Shape, Rectangle, Square]
-    -- Ractangle { x: Char }
-    -- Square { x: Int, y : Char }
+  -- TODO: Separate namespaces between class functions and class fields
+  handler :: [Class] -> O
+  handler classes' =
+    let features = (M.fromList . (f <$>) . (.features) <$> NE.filter (\x -> x.name `elem` classes') classes)
+     in foldr (\acc curr -> acc `M.union` curr) M.empty features
 
-    -- TODO: Separate namespaces between class functions and class fields
-    handler :: [Class] -> O
-    handler classes' = let features = (M.fromList . (f <$>) . (.features) <$> NE.filter (\x -> x.name `elem` classes') classes) in
-      foldr (\acc curr -> acc `M.union` curr) M.empty features
+  f :: SFeature -> (Identifier, Type)
+  f = \case
+    SFeatureMember{fbinding = SBinding{bidentifier, btype}} -> (bidentifier, btype)
+    SFeatureMethod{fidentifier, ftype} -> (fidentifier, ftype)
 
-    f :: SFeature -> (Identifier, Type)
-    f = \case
-      SFeatureMember {fbinding = SBinding {bidentifier, btype}} -> (bidentifier, btype)
-      SFeatureMethod {fidentifier, ftype} -> (fidentifier, ftype)
-
-    goUp :: Class -> [Class]
-    goUp name = case dg NEM.!? name of
-      Just parent -> name : goUp parent
-      Nothing -> [name]
-
+  goUp :: Class -> [Class]
+  goUp name = case dg NEM.!? name of
+    Just parent -> name : goUp parent
+    Nothing -> [name]
 
 allClassesWithParents :: NonEmpty SProgram -> Either String (NEMap Class Class)
 allClassesWithParents programs =

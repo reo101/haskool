@@ -66,6 +66,7 @@ library
     , extra
     , filepath
     , fixed-vector
+    , free
     , lens
     , megaparsec
     , mtl
