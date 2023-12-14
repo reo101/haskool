@@ -15,11 +15,10 @@ module Typist.Types (
   type C,
   Context (..),
   -- lens
-  variableTypes,
+  identifierTypes,
   methodTypes,
   currentClass,
   classHierarchy,
-  featureTypes,
 ) where
 
 import Control.Lens (makeLenses)
@@ -53,8 +52,7 @@ type M = Map (Type, Identifier) (NonEmpty Type)
 type C = Class
 
 data Context = Context
-  { _variableTypes :: O
-  , _featureTypes :: O
+  { _identifierTypes :: O
   , _methodTypes :: M
   , _currentClass :: C
   , _classHierarchy :: Tree Type

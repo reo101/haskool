@@ -54,8 +54,8 @@ import Typist.Types (
   Type,
   classHierarchy,
   currentClass,
+  identifierTypes,
   methodTypes,
-  variableTypes, featureTypes,
  )
 import Utils.Algorithms (
   dagToTree,
@@ -107,9 +107,29 @@ classHierarchyTree = dagToTree . (Set.toList <$>)
 typecheckSExpr :: Context -> SExpr -> Either String Type
 typecheckSExpr context = \case
   SEIdentifier _ iid -> do
-    undefined
+    let maybeVariableType :: Maybe Type
+        maybeVariableType = (context ^. identifierTypes) !? iid
+     in maybeToEither
+          ( printf
+              "Unbound variable %s"
+              iid
+          )
+          maybeVariableType
   SEAssignment _ aid abody -> do
-    undefined
+    let maybeVariableType :: Maybe Type
+        maybeVariableType = (context ^. identifierTypes) !? aid
+    variableType <-
+      maybeToEither
+        ( printf
+            "Unbound variable %s"
+            aid
+        )
+        maybeVariableType
+    bodyType <- typecheckSExpr context abody
+    early
+      (subtype (context ^. classHierarchy) bodyType variableType)
+      (printf "%s is not a subtype of %s" bodyType variableType)
+    pure $ bodyType
   SEBool _ bbool -> do
     pure $ "Bool"
   SEInteger _ iint -> do
@@ -123,9 +143,6 @@ typecheckSExpr context = \case
     t'
       | t == "SELF_TYPE" = context ^. currentClass
       | otherwise = t
-  -- SEMethodCall _ (SEIdentifier _ "self") Nothing mname marguments -> do
-  --   -- implement
-  --   pure $ ""
   SEMethodCall _ mcallee Nothing mname marguments -> do
     calleeType <- typecheckSExpr context mcallee
     argumentTypes <- traverse (typecheckSExpr context) marguments
@@ -223,7 +240,7 @@ typecheckSExpr context = \case
         letBodyType <-
           typecheckSExpr
             ( context
-                & variableTypes %~ insert bidentifier realBindingType
+                & identifierTypes %~ insert bidentifier realBindingType
             )
             letBody
         pure $ letBodyType
@@ -231,7 +248,7 @@ typecheckSExpr context = \case
         letBodyType <-
           typecheckSExpr
             ( context
-                & variableTypes %~ insert bidentifier realBindingType
+                & identifierTypes %~ insert bidentifier realBindingType
             )
             letBody
         pure $ letBodyType
@@ -242,7 +259,7 @@ typecheckSExpr context = \case
         ( \(SCaseProng _ pidenifier ptype pbody) ->
             typecheckSExpr
               ( context
-                  & variableTypes %~ insert pidenifier ptype
+                  & identifierTypes %~ insert pidenifier ptype
               )
               pbody
         )
@@ -405,12 +422,75 @@ typecheckSExpr context = \case
   SEBracketed _ bexpr -> do
     typecheckSExpr context bexpr
 
-typecheckFeature :: Context -> SFeature -> Either String ()
+typecheckFeature :: Context -> SFeature -> Either String Type
 typecheckFeature context = \case
-  SFeatureMember {fbinding = SBinding {bidentifier, btype, bbody}} -> do
-    pure ()
-  SFeatureMethod {ftype, fidentifier, fformals, fbody} -> do
-    pure ()
+  SFeatureMember{fbinding = SBinding{bidentifier, btype, bbody = Just bbody}} -> do
+    methodType <-
+      let maybeMemberType :: Maybe Type
+          maybeMemberType = (context ^. identifierTypes) !? bidentifier
+       in maybeToEither
+            ( printf
+                "No such member '%s' for class '%s'"
+                bidentifier
+                (context ^. currentClass)
+            )
+            maybeMemberType
+    bodyType <- typecheckSExpr (context & identifierTypes %~ insert "self" (context ^. currentClass)) bbody
+    early
+      (subtype (context ^. classHierarchy) bodyType methodType)
+      ( printf
+          "%s is not a subtype of %s"
+          bodyType
+          methodType
+      )
+    pure $ methodType
+  SFeatureMember{fbinding = SBinding{bidentifier, btype, bbody = Nothing}} -> do
+    methodType <-
+      let maybeMemberType :: Maybe Type
+          maybeMemberType = (context ^. identifierTypes) !? bidentifier
+       in maybeToEither
+            ( printf
+                "No such member '%s' for class '%s'"
+                bidentifier
+                (context ^. currentClass)
+            )
+            maybeMemberType
+    pure $ methodType
+  SFeatureMethod{ftype, fidentifier, fformals, fbody} -> do
+    let (argumentNames, argumentTypes) = unzip $ (\SFormal{fidentifier, ftype} -> (fidentifier, ftype)) <$> fformals
+    methodType <-
+      let maybeMethodType :: Maybe (NonEmpty Type)
+          maybeMethodType = (context ^. methodTypes) !? (context ^. currentClass, fidentifier)
+       in maybeToEither
+            ( printf
+                "No such method '%s' for class '%s'"
+                fidentifier
+                (context ^. currentClass)
+            )
+            maybeMethodType
+    let (methodArgumentTypes, methodReturnType) = splitLast methodType
+    traverse_
+      ( \(argumentType, methodArgumentType) ->
+          early
+            (subtype (context ^. classHierarchy) argumentType methodArgumentType)
+            (printf "%s is not a subtype of %s" argumentType methodArgumentType)
+      )
+      $ zip argumentTypes methodArgumentTypes
+    bodyType <-
+      typecheckSExpr
+        ( context
+            & identifierTypes %~ insert "self" (context ^. currentClass)
+            & identifierTypes %~ (\m -> foldr (uncurry insert) m (zip argumentNames methodArgumentTypes))
+            & identifierTypes %~ undefined -- TODO: petrakis atanasos (A HELLENIC MAN)
+        )
+        fbody
+    let realMethodType
+          | methodReturnType == "SELF_TYPE" = context ^. currentClass
+          | otherwise = methodReturnType
+    early
+      (subtype (context ^. classHierarchy) bodyType realMethodType)
+      (printf "%s is not a subtype of %s" bodyType realMethodType)
+    pure $ methodReturnType
 
 early :: Bool -> String -> Either String ()
 early True msg = Left msg
