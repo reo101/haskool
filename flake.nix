@@ -6,7 +6,7 @@
       url = "github:nixos/nixpkgs/nixos-unstable";
     };
     hix = {
-      url = "github:tek/hix?ref=0.6.7";
+      url = "github:tek/hix?ref=0.6.9";
     };
   };
 
@@ -21,7 +21,9 @@
       pkgs = nixpkgs.legacyPackages.${config.system};
     in {
       envs.dev = {
-        ghc.compiler = "ghc946";
+        ghc = {
+          compiler = "ghc94";
+        };
         hls.enable = true;
 
         buildInputs = with pkgs; [
@@ -51,6 +53,7 @@
           "DuplicateRecordFields"
           "ExplicitForAll"
           "ExplicitNamespaces"
+          "GADTSyntax"
           "LambdaCase"
           "MultiWayIf"
           "OverloadedRecordDot"
@@ -94,6 +97,7 @@
             "fixed-vector" "lens"
             "megaparsec"
             "mtl"
+            "nonempty-containers"
             "parser-combinators"
             "regex-tdfa"
             "text"
@@ -111,9 +115,9 @@
             "QuickCheck" # ^>= 2.12"
             "quickcheck-instances"
             "HUnit"
-            "hspec" # ^>= 2.11"
-            "hspec-discover" # ^>= 2.11"
-            "lens-properties" # ^>= 4.11"
+            "hspec" # ^>= 2.05"
+            "hspec-discover" # ^>= 2.05"
+            "lens-properties" # ^>= 4.05"
             "text"
           ];
         };

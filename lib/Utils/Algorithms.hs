@@ -1,66 +1,74 @@
-{-# OPTIONS_GHC -Wno-unused-top-binds #-}
-module Utils.Algorithms (detectCycle) where
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
-import Control.Lens (makeLenses, (%~), (&))
+{-# HLINT ignore "Use section" #-}
+module Utils.Algorithms (
+  dagToTree,
+  subtype,
+  lca,
+) where
+
 import Control.Lens.Getter ((^.))
-import Data.List.NonEmpty (NonEmpty ((:|)))
-import Data.List.NonEmpty.Extra (fromList)
-import Control.Applicative (asum)
 import Data.List ()
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty.Extra qualified as NE (fromList, head, nonEmpty)
+import Data.Map.NonEmpty qualified as NEM (toList, fromList, (!?))
+import Data.Maybe (fromMaybe)
 import Data.Tuple.Extra (both)
+import Text.Printf (printf)
+import Typist.Types (
+  Graph,
+  Path,
+  Tree (..),
+  neighbours,
+  node,
+ )
 
-type Graph a = NonEmpty (a, [a])
-type Path a = [a]
-
-data Info a = Info
-  { _seen :: [a]
-  , _path :: Path a
-  }
-
-data Tree a where
-  Tree :: a -> [Tree a] -> Tree a
-  deriving stock (Show)
-
-makeLenses ''Info
-
--- >>> detectCycle [(1, [3]), (2, [3]), (3, [2])]
--- Just [3,2]
+-- >>> dagToTree $ NEM.fromList $ NE.fromList [("1", ["3"]), ("2", ["3"]), ("3", ["4", "5"]), ("4", []), ("5", ["5"])]
+-- Left ["5"]
 
 -- | Detect cycles in a graph (has to have only one connected component)
-detectCycle :: forall a. (Eq a) => Graph a -> Either [a] (Tree a)
-detectCycle graph@((start, _) :| _) = relaxNode start (Info [] [])
+dagToTree :: forall a. (Ord a, Show a) => Graph a -> Either (NonEmpty a) (Tree a)
+dagToTree graph = relaxNode [] start
  where
-  relaxNode :: a -> Info a -> Either [a] (Tree a)
-  relaxNode curr info =
+  start :: a
+  start = fst $ NE.head $ NEM.toList graph
+
+  relaxNode :: Path a -> a -> Either (NonEmpty a) (Tree a)
+  relaxNode path curr =
     if
         -- Found a cycle
-        | curr `elem` (info ^. seen) ->
-            Left $ dropWhile (curr /=) (reverse $ info ^. path)
+        | curr `elem` path ->
+            Left $ NE.fromList $ dropWhile (/= curr) $ reverse path
         -- Still room to go
-        | not $ null edges -> Tree curr <$> traverse (\x -> relaxNode x $ info & seen %~ (curr :) & path %~ (curr :)) edges
+        | not $ null edges ->
+            Tree curr <$> traverse (relaxNode (curr : path)) edges
         -- Leaf, return 'singleton' tree
         | otherwise ->
             Right $ Tree curr []
    where
     edges :: [a]
-    edges = findNeighbours graph curr
+    edges =
+      fromMaybe
+        (error $ printf "Incomplete tree (undefined node %s)" (show curr))
+        (graph NEM.!? curr)
 
-  findNeighbours :: Graph a -> a -> [a]
-  findNeighbours ((v, edges) :| rest) seek =
-    if v == seek then edges else findNeighbours (fromList rest) seek
+-- >>> lca (Tree 1 [Tree 2 [], Tree 3 [Tree 4 [], Tree 5 []]]) 4 5
+-- 3
 
--- >>> lca (Tree 1 [Tree 2 [], Tree 3 []]) 2 3
-
-intersect :: (Eq a) => ([a], [a]) -> [a]
-intersect (l1, l2) = fst <$> takeWhile (uncurry (==)) (zip l1 l2)
+commonPrefix :: (Eq a) => ([a], [a]) -> [a]
+commonPrefix (l1, l2) = fst <$> takeWhile (uncurry (==)) (zip l1 l2)
 
 lca :: forall a. (Eq a) => Tree a -> a -> a -> a
-lca tree x y = last $ intersect $ both (explore tree []) (x, y)
+lca tree x y = last $ commonPrefix $ both (explore [] tree) (x, y)
+ where
+  explore :: Path a -> Tree a -> a -> Path a
+  explore ans tree seek =
+    if seek == tree ^. node
+      then reverse $ tree ^. node : ans
+      else tree ^. neighbours >>= (\subtree -> explore ((tree ^. node) : ans) subtree seek)
 
-explore :: (Eq a) => Tree a -> Path a -> a -> Path a
--- Leaf
-explore (Tree curr []) ans seek = if seek == curr then reverse $ curr : ans else []
--- Non-Leaf
-explore (Tree curr rest) ans seek = if seek == curr then reverse $ curr : ans else
-  concatMap (\x -> explore x (curr : ans) seek) rest
+-- >>> subtype (Tree 1 [Tree 2 [], Tree 3 [Tree 4 [], Tree 5 []]]) 1 1
+-- True
 
+subtype :: (Eq a) => Tree a -> a -> a -> Bool
+subtype tree x y = lca tree x y == y

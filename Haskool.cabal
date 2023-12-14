@@ -23,6 +23,8 @@ library
       Parser
       Parser.Types
       Regex.Atto
+      Typist
+      Typist.Types
       Utils.Algorithms
       Utils.FS
       Utils.Pretty
@@ -40,6 +42,7 @@ library
       DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
+      GADTSyntax
       LambdaCase
       MultiWayIf
       OverloadedRecordDot
@@ -66,6 +69,7 @@ library
     , lens
     , megaparsec
     , mtl
+    , nonempty-containers
     , parser-combinators
     , regex-tdfa
     , text
@@ -87,6 +91,7 @@ executable haskool
       DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
+      GADTSyntax
       LambdaCase
       MultiWayIf
       OverloadedRecordDot
@@ -120,6 +125,7 @@ test-suite haskool-test
       DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
+      GADTSyntax
       LambdaCase
       MultiWayIf
       OverloadedRecordDot
