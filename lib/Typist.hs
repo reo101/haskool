@@ -1,5 +1,5 @@
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# OPTIONS_GHC -Wno-unused-matches #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
@@ -60,15 +60,21 @@ import Typist.Types (
   Tree,
   Type,
   classHierarchy,
+  classParentHirearchy,
   currentClass,
   identifierTypes,
   methodTypes,
+  programs,
  )
 import Utils.Algorithms (
   dagToTree,
   lca,
   subtype,
  )
+
+-- NOTE:
+--  first pass - set of all defined classes
+--  second pass - optimized GD constuction (with early return for nonexistant inherited types)
 
 extendO :: NonEmpty SClass -> NEMap Class Class -> NEMap Class O
 extendO classes dg = NEM.fromList $ ((.name) *** handler) <$> NE.zip classes inheritancePaths
@@ -509,8 +515,8 @@ typecheckFeature context = \case
       typecheckSExpr
         ( context
             & identifierTypes %~ M.insert "self" (context ^. currentClass)
-            & identifierTypes %~ (\m -> foldr (uncurry M.insert) m (zip argumentNames methodArgumentTypes))
-            & identifierTypes %~ undefined -- TODO: petrakis atanasos (A HELLENIC MAN)
+            & identifierTypes %~ (\o -> foldr (uncurry M.insert) o (zip argumentNames methodArgumentTypes))
+            & identifierTypes %~ (\o -> o `M.union` (extendO ((.pclasses) =<< (context ^. programs)) (context ^. classParentHirearchy) NEM.! (context ^. currentClass)))
         )
         fbody
     let realMethodType

@@ -19,6 +19,8 @@ module Typist.Types (
   methodTypes,
   currentClass,
   classHierarchy,
+  programs,
+  classParentHirearchy,
 ) where
 
 import Control.Lens (makeLenses)
@@ -26,6 +28,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Map.NonEmpty (NEMap)
 import Data.Text qualified as T
+import Parser.Types (SProgram)
 
 type Graph a = NEMap a [a]
 type Path a = [a]
@@ -56,6 +59,8 @@ data Context = Context
   , _methodTypes :: M
   , _currentClass :: C
   , _classHierarchy :: Tree Type
+  , _programs :: NonEmpty SProgram
+  , _classParentHirearchy :: NEMap Class Class
   }
 
 makeLenses ''Context
