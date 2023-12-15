@@ -3,9 +3,6 @@ module Typist.Types (
   type Graph,
   type Path,
   Tree (..),
-  -- lens
-  node,
-  neighbours,
   -- Types
   type Type,
   type Class,
@@ -14,13 +11,6 @@ module Typist.Types (
   type M,
   type C,
   Context (..),
-  -- lens
-  identifierTypes,
-  methodTypes,
-  currentClass,
-  classHierarchy,
-  programs,
-  classParentHirearchy,
 ) where
 
 import Control.Lens (makeLenses)
@@ -28,16 +18,17 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Map.NonEmpty (NEMap)
 import Data.Text qualified as T
-import Parser.Types (SProgram)
+import GHC.Generics (Generic)
+import Parser.Types (ExtraInfo, SProgram)
 
 type Graph a = NEMap a [a]
 type Path a = [a]
 
 data Tree a = Tree
-  { _node :: a
-  , _neighbours :: [Tree a]
+  { node :: a
+  , neighbours :: [Tree a]
   }
-  deriving stock (Show)
+  deriving stock (Generic, Show)
 
 makeLenses ''Tree
 
@@ -55,12 +46,11 @@ type M = Map (Type, Identifier) (NonEmpty Type)
 type C = Class
 
 data Context = Context
-  { _identifierTypes :: O
-  , _methodTypes :: M
-  , _currentClass :: C
-  , _classHierarchy :: Tree Type
-  , _programs :: NonEmpty SProgram
-  , _classParentHirearchy :: NEMap Class Class
+  { identifierTypes :: O
+  , methodTypes :: M
+  , currentClass :: C
+  , classHierarchy :: Tree Type
+  , programs :: NonEmpty (SProgram ExtraInfo)
+  , classParentHirearchy :: NEMap Class Class
   }
-
-makeLenses ''Context
+  deriving stock (Generic)

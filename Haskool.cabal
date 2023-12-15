@@ -35,21 +35,27 @@ library
   hs-source-dirs:
       lib
   default-extensions:
+      AllowAmbiguousTypes
       BlockArguments
       DataKinds
       DeriveAnyClass
+      DeriveGeneric
       DerivingStrategies
       DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
+      FlexibleContexts
       GADTSyntax
       LambdaCase
       MultiWayIf
+      NoMonomorphismRestriction
+      OverloadedLabels
       OverloadedRecordDot
       OverloadedStrings
       RecordWildCards
       ScopedTypeVariables
       TemplateHaskell
+      TypeApplications
       TypeFamilies
       UndecidableInstances
       UnicodeSyntax
@@ -67,6 +73,7 @@ library
     , filepath
     , fixed-vector
     , free
+    , generic-lens
     , lens
     , megaparsec
     , mtl
@@ -85,21 +92,27 @@ executable haskool
   hs-source-dirs:
       app
   default-extensions:
+      AllowAmbiguousTypes
       BlockArguments
       DataKinds
       DeriveAnyClass
+      DeriveGeneric
       DerivingStrategies
       DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
+      FlexibleContexts
       GADTSyntax
       LambdaCase
       MultiWayIf
+      NoMonomorphismRestriction
+      OverloadedLabels
       OverloadedRecordDot
       OverloadedStrings
       RecordWildCards
       ScopedTypeVariables
       TemplateHaskell
+      TypeApplications
       TypeFamilies
       UndecidableInstances
       UnicodeSyntax
@@ -119,21 +132,27 @@ test-suite haskool-test
   hs-source-dirs:
       test
   default-extensions:
+      AllowAmbiguousTypes
       BlockArguments
       DataKinds
       DeriveAnyClass
+      DeriveGeneric
       DerivingStrategies
       DuplicateRecordFields
       ExplicitForAll
       ExplicitNamespaces
+      FlexibleContexts
       GADTSyntax
       LambdaCase
       MultiWayIf
+      NoMonomorphismRestriction
+      OverloadedLabels
       OverloadedRecordDot
       OverloadedStrings
       RecordWildCards
       ScopedTypeVariables
       TemplateHaskell
+      TypeApplications
       TypeFamilies
       UndecidableInstances
       UnicodeSyntax

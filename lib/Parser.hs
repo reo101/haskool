@@ -10,11 +10,13 @@ module Parser (
 
 import Control.Applicative (Alternative (..))
 import Control.Applicative.Combinators qualified (choice)
+import Control.Comonad.Cofree (Cofree (..))
 import Control.Lens (Iso', iso, lens, view, (+~))
 import Control.Lens.Combinators (Lens')
 import Control.Monad (join, void)
 import Control.Monad.Combinators.Expr (Operator (..), makeExprParser)
 import Control.Monad.Combinators.NonEmpty qualified as NE (endBy1, sepBy1)
+import Data.Generics.Labels ()
 import Data.List.NonEmpty as NE (last)
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -22,11 +24,12 @@ import Data.Text qualified as T
 import Data.Void (Void)
 import Lexer (Lexeme (..), lexer)
 import Parser.Types (
-  ExtraInfo(..),
+  ExtraInfo (..),
   SBinding (..),
   SCaseProng (..),
   SClass (..),
-  SExpr (..),
+  SExpr,
+  SExprF (..),
   SFeature (..),
   SFormal (..),
   SProgram (..),
@@ -46,7 +49,7 @@ import Text.Megaparsec (
   single,
   unPos,
  )
-import qualified Text.Megaparsec.Error
+import Text.Megaparsec.Error qualified
 
 type Parser = Parsec Void [Lexeme]
 
@@ -55,14 +58,14 @@ choice = Control.Applicative.Combinators.choice . (try <$>)
 
 ---
 
-parser :: Parser SProgram
+parser :: Parser (SProgram ExtraInfo)
 parser = programParser
 
-programParser :: Parser SProgram
+programParser :: Parser (SProgram ExtraInfo)
 programParser = do
   pclasses <- classParser `NE.endBy1` try semicolonSeparator
   let endLine = (NE.last pclasses).extraInfo.endLine
-  pure $ SProgram{extraInfo = ExtraInfo {endLine, typeName = Nothing}, pclasses}
+  pure $ SProgram{extraInfo = ExtraInfo{endLine, typeName = Nothing}, pclasses}
 
 objectIdLexemeParser :: Parser T.Text
 objectIdLexemeParser = token isId Set.empty
@@ -102,7 +105,7 @@ boolLexemeParser = token isBool Set.empty
   isBool (LBool x) = Just x
   isBool _ = Nothing
 
-classParser :: Parser SClass
+classParser :: Parser (SClass ExtraInfo)
 classParser = do
   _ <- single LClass
   _ <- whitespace
@@ -120,7 +123,7 @@ classParser = do
   _ <- optional whitespace
   _ <- single (LSymbol '}')
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SClass{extraInfo = ExtraInfo {endLine, typeName = Nothing}, name, parent, features}
+  pure $ SClass{extraInfo = ExtraInfo{endLine, typeName = Nothing}, name, parent, features}
 
 whitespace :: Parser ()
 whitespace = do
@@ -138,22 +141,10 @@ whitespace = do
   updateParserState $ lineNumberLens +~ skippedLines
   pure ()
 
-statePosState' :: Lens' (State s e) (PosState s)
-statePosState' = lens statePosState (\s p -> s{statePosState = p})
-
-pstateSourcePos' :: Lens' (PosState s) SourcePos
-pstateSourcePos' = lens pstateSourcePos (\s p -> s{pstateSourcePos = p})
-
-sourceLine' :: Lens' SourcePos Pos
-sourceLine' = lens sourceLine (\s p -> s{sourceLine = p})
-
-pos' :: Iso' Pos Int
-pos' = iso unPos mkPos
-
 lineNumberLens :: Lens' (State s e) Int
-lineNumberLens = statePosState' . pstateSourcePos' . sourceLine' . pos'
+lineNumberLens = #statePosState . #pstateSourcePos . #sourceLine . iso unPos mkPos
 
-argumentsParser :: Parser [SExpr]
+argumentsParser :: Parser [SExpr ExtraInfo]
 argumentsParser = expressionParser `sepBy` try commaSeparator
 
 lexemeSeparator :: Lexeme -> Parser ()
@@ -180,17 +171,17 @@ separatorParser = void . join between (optional whitespace)
 betweenParenthesis :: Parser a -> Parser a
 betweenParenthesis = between (single (LSymbol '(') *> optional whitespace) (optional whitespace <* single (LSymbol ')'))
 
-formalParser :: Parser SFormal
+formalParser :: Parser (SFormal ExtraInfo)
 formalParser = do
   fidentifier <- objectIdLexemeParser
   ftype <- typeIdLexemeParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SFormal{extraInfo = ExtraInfo {endLine, typeName = Nothing}, fidentifier, ftype}
+  pure $ SFormal{extraInfo = ExtraInfo{endLine, typeName = Nothing}, fidentifier, ftype}
 
-featureParser :: Parser SFeature
+featureParser :: Parser (SFeature ExtraInfo)
 featureParser = choice [featureMethodParser, featureMemberParser]
  where
-  featureMethodParser :: Parser SFeature
+  featureMethodParser :: Parser (SFeature ExtraInfo)
   featureMethodParser = do
     fidentifier <- objectIdLexemeParser
     _ <- optional whitespace
@@ -204,14 +195,14 @@ featureParser = choice [featureMethodParser, featureMemberParser]
     _ <- optional whitespace
     _ <- single $ LSymbol '}'
     endLine <- view lineNumberLens <$> getParserState
-    pure $ SFeatureMethod{extraInfo = ExtraInfo {endLine, typeName = Nothing}, fidentifier, fformals, ftype, fbody}
-  featureMemberParser :: Parser SFeature
+    pure $ SFeatureMethod{extraInfo = ExtraInfo{endLine, typeName = Nothing}, fidentifier, fformals, ftype, fbody}
+  featureMemberParser :: Parser (SFeature ExtraInfo)
   featureMemberParser = do
     fbinding <- bindingParser
     endLine <- view lineNumberLens <$> getParserState
-    pure $ SFeatureMember{extraInfo = ExtraInfo {endLine, typeName = Nothing}, fbinding}
+    pure $ SFeatureMember{extraInfo = ExtraInfo{endLine, typeName = Nothing}, fbinding}
 
-operators :: [[Operator Parser SExpr]]
+operators :: [[Operator Parser (SExpr ExtraInfo)]]
 operators =
   [
     [ Postfix methodCallSuffixParser
@@ -238,20 +229,39 @@ operators =
     ]
   ]
  where
-  infixOperatorFromLexeme :: Lexeme -> (ExtraInfo -> SExpr -> SExpr -> SExpr) -> Parser (SExpr -> SExpr -> SExpr)
+  infixOperatorFromLexeme ::
+    Lexeme ->
+    ( SExprF ExtraInfo (SExpr ExtraInfo) ->
+      SExprF ExtraInfo (SExpr ExtraInfo) ->
+      SExprF ExtraInfo (SExprF ExtraInfo (SExpr ExtraInfo))
+    ) ->
+    Parser
+      ( SExpr ExtraInfo ->
+        SExpr ExtraInfo ->
+        SExpr ExtraInfo
+      )
   infixOperatorFromLexeme lexeme operator = do
     _ <- try (lexemeSeparator lexeme)
-    pure $ \sexpr1 sexpr2 ->
-      operator sexpr2.extraInfo sexpr1 sexpr2
+    pure $ \(extraInfo :< sexpr1') (_ :< sexpr2') ->
+      (extraInfo :<) $ ((extraInfo :<) <$>) $ operator sexpr1' sexpr2'
 
-  recursiveUnaryOperatorParser :: Parser a -> (a -> SExpr -> SExpr) -> Parser (SExpr -> SExpr)
+  recursiveUnaryOperatorParser ::
+    Parser a ->
+    ( a ->
+      SExpr ExtraInfo ->
+      SExpr ExtraInfo
+    ) ->
+    Parser
+      ( SExpr ExtraInfo ->
+        SExpr ExtraInfo
+      )
   recursiveUnaryOperatorParser p c = do
     a <- p
     maybeRec <- optional $ recursiveUnaryOperatorParser p c
     pure $
       fromMaybe id maybeRec . c a
 
-  methodCallSuffixParser :: Parser (SExpr -> SExpr)
+  methodCallSuffixParser :: Parser (SExpr ExtraInfo -> SExpr ExtraInfo)
   methodCallSuffixParser =
     recursiveUnaryOperatorParser
       do
@@ -263,27 +273,27 @@ operators =
         marguments <- betweenParenthesis $ expressionParser `sepBy` try commaSeparator
         endLine <- view lineNumberLens <$> getParserState
         pure (mtype, mname, marguments, endLine)
-      (\(mtype, mname, marguments, endLine) mcallee -> SEMethodCall{extraInfo = ExtraInfo {endLine, typeName = Nothing}, mcallee, mtype, mname, marguments})
+      (\(mtype, mname, marguments, endLine) mcallee -> ExtraInfo{endLine, typeName = Nothing} :< SEMethodCall{mcallee, mtype, mname, marguments})
 
-  notParser :: Parser (SExpr -> SExpr)
+  notParser :: Parser (SExpr ExtraInfo -> SExpr ExtraInfo)
   notParser =
     recursiveUnaryOperatorParser
       (lexemeSeparator LNot)
-      (const $ \sexpr -> SENot sexpr.extraInfo sexpr)
+      (const $ \sexpr@(extraInfo :< _) -> extraInfo :< SENot sexpr)
 
-  tildeParser :: Parser (SExpr -> SExpr)
+  tildeParser :: Parser (SExpr ExtraInfo -> SExpr ExtraInfo)
   tildeParser = do
     recursiveUnaryOperatorParser
       (lexemeSeparator $ LSymbol '~')
-      (const $ \sexpr -> SETilde sexpr.extraInfo sexpr)
+      (const $ \sexpr@(extraInfo :< _) -> extraInfo :< SETilde sexpr)
 
-  isvoidParser :: Parser (SExpr -> SExpr)
+  isvoidParser :: Parser (SExpr ExtraInfo -> SExpr ExtraInfo)
   isvoidParser =
     recursiveUnaryOperatorParser
       (lexemeSeparator LIsVoid)
-      (const $ \sexpr -> SEIsVoid sexpr.extraInfo sexpr)
+      (const $ \sexpr@(extraInfo :< _) -> extraInfo :< SEIsVoid sexpr)
 
-expressionParser :: Parser SExpr
+expressionParser :: Parser (SExpr ExtraInfo)
 expressionParser = do
   base <-
     flip makeExprParser operators $
@@ -304,7 +314,7 @@ expressionParser = do
         ]
   pure base
 
-bindingParser :: Parser SBinding
+bindingParser :: Parser (SBinding ExtraInfo)
 bindingParser = do
   bidentifier <- objectIdLexemeParser
   _ <- colonSeparator
@@ -315,9 +325,9 @@ bindingParser = do
     _ <- optional whitespace
     expressionParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SBinding{extraInfo = ExtraInfo {endLine, typeName = Nothing}, bidentifier, btype, bbody}
+  pure $ SBinding{extraInfo = ExtraInfo{endLine, typeName = Nothing}, bidentifier, btype, bbody}
 
-assignmentParser :: Parser SExpr
+assignmentParser :: Parser (SExpr ExtraInfo)
 assignmentParser = do
   aid <- objectIdLexemeParser
   _ <- optional whitespace
@@ -325,9 +335,9 @@ assignmentParser = do
   _ <- optional whitespace
   abody <- expressionParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEAssignment{extraInfo = ExtraInfo {endLine, typeName = Nothing}, aid, abody}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEAssignment{aid, abody}
 
-selfMethodCallParser :: Parser SExpr
+selfMethodCallParser :: Parser (SExpr ExtraInfo)
 selfMethodCallParser = do
   mname <- objectIdLexemeParser
   startLine <- view lineNumberLens <$> getParserState
@@ -336,15 +346,15 @@ selfMethodCallParser = do
   marguments <- betweenParenthesis argumentsParser
   endLine <- view lineNumberLens <$> getParserState
   pure $
-      SEMethodCall
-        { extraInfo = ExtraInfo {endLine, typeName = Nothing}
-        , mcallee = SEIdentifier{extraInfo = ExtraInfo {endLine = startLine, typeName = Nothing}, iid = "self"}
+    ExtraInfo{endLine, typeName = Nothing}
+      :< SEMethodCall
+        { mcallee = ExtraInfo{endLine = startLine, typeName = Nothing} :< SEIdentifier{iid = "self"}
         , mtype = Nothing
         , mname
         , marguments
         }
 
-ifThenElseParser :: Parser SExpr
+ifThenElseParser :: Parser (SExpr ExtraInfo)
 ifThenElseParser = do
   _ <- single LIf
   _ <- whitespace
@@ -360,9 +370,9 @@ ifThenElseParser = do
   _ <- whitespace
   _ <- single LFi
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEIfThenElse{extraInfo = ExtraInfo {endLine, typeName = Nothing}, iif, ithen, ielse}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEIfThenElse{iif, ithen, ielse}
 
-whileParser :: Parser SExpr
+whileParser :: Parser (SExpr ExtraInfo)
 whileParser = do
   _ <- single LWhile
   wif <- expressionParser
@@ -370,9 +380,9 @@ whileParser = do
   wloop <- expressionParser
   _ <- single LPool
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEWhile{extraInfo = ExtraInfo {endLine, typeName = Nothing}, wif, wloop}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEWhile{wif, wloop}
 
-blockParser :: Parser SExpr
+blockParser :: Parser (SExpr ExtraInfo)
 blockParser = do
   _ <- single $ LSymbol '{'
   _ <- optional whitespace
@@ -380,9 +390,9 @@ blockParser = do
   _ <- optional whitespace
   _ <- single $ LSymbol '}'
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEBlock{extraInfo = ExtraInfo {endLine, typeName = Nothing}, bexpressions}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEBlock{bexpressions}
 
-letBindingParser :: Parser SExpr
+letBindingParser :: Parser (SExpr ExtraInfo)
 letBindingParser = do
   _ <- single LLet
   _ <- optional whitespace
@@ -392,9 +402,9 @@ letBindingParser = do
   _ <- optional whitespace
   lbody <- expressionParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SELetIn{extraInfo = ExtraInfo {endLine, typeName = Nothing}, lbindings, lbody}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SELetIn{lbindings, lbody}
 
-caseParser :: Parser SExpr
+caseParser :: Parser (SExpr ExtraInfo)
 caseParser = do
   _ <- single LCase
   _ <- optional whitespace
@@ -406,9 +416,9 @@ caseParser = do
   _ <- optional whitespace
   _ <- single LEsac
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SECase{extraInfo = ExtraInfo {endLine, typeName = Nothing}, cexpr, cprongs}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SECase{cexpr, cprongs}
  where
-  caseProngParser :: Parser SCaseProng
+  caseProngParser :: Parser (SCaseProng ExtraInfo)
   caseProngParser = do
     pidenifier <- objectIdLexemeParser
     _ <- colonSeparator
@@ -416,42 +426,42 @@ caseParser = do
     _ <- separatorParser $ single LDArrow
     pbody <- expressionParser
     endLine <- view lineNumberLens <$> getParserState
-    pure $ SCaseProng{extraInfo = ExtraInfo {endLine, typeName = Nothing}, pidenifier, ptype, pbody}
+    pure $ SCaseProng{extraInfo = ExtraInfo{endLine, typeName = Nothing}, pidenifier, ptype, pbody}
 
-newParser :: Parser SExpr
+newParser :: Parser (SExpr ExtraInfo)
 newParser = do
   _ <- single LNew
   _ <- whitespace
   ntype <- typeIdLexemeParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SENew{extraInfo = ExtraInfo {endLine, typeName = Nothing}, ntype}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SENew{ntype}
 
-bracketedParser :: Parser SExpr
+bracketedParser :: Parser (SExpr ExtraInfo)
 bracketedParser = do
   bexpr <- betweenParenthesis expressionParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEBracketed{extraInfo = ExtraInfo {endLine, typeName = Nothing}, bexpr}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEBracketed{bexpr}
 
-identifierParser :: Parser SExpr
+identifierParser :: Parser (SExpr ExtraInfo)
 identifierParser = do
   iid <- objectIdLexemeParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEIdentifier{extraInfo = ExtraInfo {endLine, typeName = Nothing}, iid}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEIdentifier{iid}
 
-integerParser :: Parser SExpr
+integerParser :: Parser (SExpr ExtraInfo)
 integerParser = do
   iint <- integerLexemeParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEInteger{extraInfo = ExtraInfo {endLine, typeName = Nothing}, iint}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEInteger{iint}
 
-stringParser :: Parser SExpr
+stringParser :: Parser (SExpr ExtraInfo)
 stringParser = do
   sstring <- stringLexemeParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEString{extraInfo = ExtraInfo {endLine, typeName = Nothing}, sstring}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEString{sstring}
 
-boolParser :: Parser SExpr
+boolParser :: Parser (SExpr ExtraInfo)
 boolParser = do
   bbool <- boolLexemeParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ SEBool{extraInfo = ExtraInfo {endLine, typeName = Nothing}, bbool}
+  pure $ ExtraInfo{endLine, typeName = Nothing} :< SEBool{bbool}

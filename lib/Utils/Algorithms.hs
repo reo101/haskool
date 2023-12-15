@@ -8,19 +8,18 @@ module Utils.Algorithms (
 ) where
 
 import Control.Lens.Getter ((^.))
+import Data.Generics.Labels ()
 import Data.List ()
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.List.NonEmpty.Extra qualified as NE (fromList, head, nonEmpty)
-import Data.Map.NonEmpty qualified as NEM (toList, fromList, (!?))
+import Data.List.NonEmpty.Extra qualified as NE (fromList, head)
+import Data.Map.NonEmpty qualified as NEM (toList, (!?))
 import Data.Maybe (fromMaybe)
 import Data.Tuple.Extra (both)
 import Text.Printf (printf)
 import Typist.Types (
   Graph,
   Path,
-  Tree (..),
-  neighbours,
-  node,
+  Tree (Tree),
  )
 
 -- >>> dagToTree $ NEM.fromList $ NE.fromList [("1", ["3"]), ("2", ["3"]), ("3", ["4", "5"]), ("4", []), ("5", ["5"])]
@@ -63,9 +62,9 @@ lca tree x y = last $ commonPrefix $ both (explore [] tree) (x, y)
  where
   explore :: Path a -> Tree a -> a -> Path a
   explore ans tree seek =
-    if seek == tree ^. node
-      then reverse $ tree ^. node : ans
-      else tree ^. neighbours >>= (\subtree -> explore ((tree ^. node) : ans) subtree seek)
+    if seek == tree ^. #node
+      then reverse $ tree ^. #node : ans
+      else tree ^. #neighbours >>= (\subtree -> explore ((tree ^. #node) : ans) subtree seek)
 
 -- >>> subtype (Tree 1 [Tree 2 [], Tree 3 [Tree 4 [], Tree 5 []]]) 1 1
 -- True
