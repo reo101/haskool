@@ -31,6 +31,7 @@ data ExtraInfo where
     ExtraInfo
   deriving stock (Generic)
 
+-- extra :: Lens' (SExpr ExtraInfo) ExtraInfo
 extra :: Lens' (Cofree f a) a
 extra = lens (\(extraInfo :< _) -> extraInfo) (\(_ :< a) extraInfo -> extraInfo :< a)
 
@@ -126,7 +127,7 @@ data SExprF e r where
     } ->
     SExprF e r
   SELetIn ::
-    { lbindings :: NonEmpty (SBinding e)
+    { lbinding :: SBinding e
     , lbody :: r
     } ->
     SExprF e r

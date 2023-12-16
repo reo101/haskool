@@ -30,6 +30,7 @@ library
       Utils.Pretty
       Utils.Pretty.Lexer
       Utils.Pretty.Parser
+      Utils.Pretty.Typist
   other-modules:
       Paths_haskool
   hs-source-dirs:

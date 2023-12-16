@@ -1,5 +1,4 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-unused-matches #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
@@ -8,42 +7,41 @@
 {-# HLINT ignore "Avoid lambda" #-}
 
 module Typist (
-  ) where
+  typecheckSProgram,
+  typecheckSClass,
+  typecheckSFeature,
+  typecheckSExpr,
+) where
 
-import Control.Applicative (Alternative (..))
-import Control.Applicative.Combinators qualified (choice)
-import Control.Arrow (Arrow (..))
-import Control.Comonad.Cofree (Cofree (..))
-import Control.Lens (Iso', iso, lens, makeLenses, view, (%~), (&), (+~), (^.))
-import Control.Lens.Combinators (Lens')
-import Control.Monad (foldM, join, void)
-import Control.Monad.Combinators.Expr (Operator (..), makeExprParser)
-import Control.Monad.Combinators.NonEmpty qualified as NE (endBy1, sepBy1)
-import Data.Coerce (coerce)
+import Control.Comonad.Cofree (Cofree (..), _unwrap)
+import Control.Lens (
+  Field1 (_1),
+  Field2 (_2),
+  Field3 (_3),
+  Field4 (_4),
+  (%=),
+  (&),
+  (.=),
+  (.~),
+  (<.~),
+  (<?~),
+  (?~),
+  (^.),
+ )
+import Control.Monad.State (MonadState (..), MonadTrans (..), StateT)
 import Data.Either.Extra (maybeToEither)
 import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty as NE (NonEmpty (..))
-import Data.List.NonEmpty qualified as NE (filter, last, toList, zip)
-import Data.List.NonEmpty.Extra qualified as NE (nonEmpty)
-import Data.Map qualified as M (Map, empty, fromList, insert, union, (!), (!?))
-import Data.Map.NonEmpty (NEMap)
-import Data.Map.NonEmpty qualified as NEM (
-  foldr,
-  fromList,
-  insertWith,
-  singleton,
-  toList,
-  (!),
+import Data.List.NonEmpty qualified as NE (last, toList, unzip)
+import Data.Map qualified as M (
+  insert,
+  union,
   (!?),
  )
-import Data.Maybe (fromMaybe)
-import Data.Maybe.HT (toMaybe)
-import Data.Set (Set)
-import Data.Set qualified as Set
-import Data.Set.NonEmpty (NESet)
-import Data.Text qualified as T
-import Data.Void (Void)
+import Data.Map.NonEmpty qualified as NEM (
+  (!),
+ )
 import Parser.Types (
   ExtraInfo (..),
   SBinding (..),
@@ -54,484 +52,548 @@ import Parser.Types (
   SFeature (..),
   SFormal (..),
   SProgram (..),
+  extra,
  )
 import Text.Printf (printf)
-import Typist.Types (
-  Class,
-  Context,
-  Identifier,
-  O,
-  Tree,
-  Type,
- )
+import Typist.Types (Context, Type)
 import Utils.Algorithms (
+  allClassesWithParents,
+  classHierarchyGraph,
+  classHierarchyTree,
   dagToTree,
+  extendO,
+  findFirstDuplicate,
   lca,
   subtype,
  )
 
-extendO :: NonEmpty (SClass ExtraInfo) -> NEMap Class Class -> NEMap Class O
-extendO classes dg = NEM.fromList $ ((.name) *** handler) <$> NE.zip classes inheritancePaths
- where
-  inheritancePaths :: NonEmpty [Class]
-  inheritancePaths = reverse . goUp . (.name) <$> classes
-
-  -- [Object, Shape, Rectangle, Square]
-  -- Ractangle { x: Char }
-  -- Square { x: Int, y : Char }
-
-  -- TODO: Separate namespaces between class functions and class fields
-  handler :: [Class] -> O
-  handler classes' =
-    let features = (M.fromList . (f <$>) . (.features) <$> NE.filter (\x -> x.name `elem` classes') classes)
-     in foldr (\acc curr -> acc `M.union` curr) M.empty features
-
-  f :: SFeature ExtraInfo -> (Identifier, Type)
-  f = \case
-    SFeatureMember{fbinding = SBinding{bidentifier, btype}} -> (bidentifier, btype)
-    SFeatureMethod{fidentifier, ftype} -> (fidentifier, ftype)
-
-  goUp :: Class -> [Class]
-  goUp name = case dg NEM.!? name of
-    Just parent -> name : goUp parent
-    Nothing -> [name]
-
-allClassesWithParents :: NonEmpty (SProgram ExtraInfo) -> Either String (NEMap Class Class)
-allClassesWithParents programs =
-  let classesList = programs >>= (.pclasses)
-      sclassToclassWithParent (SClass{name, parent}) = (name, fromMaybe "Object" parent)
-      classesWithParentsList = sclassToclassWithParent <$> classesList
-      classesWithParents = NEM.fromList classesWithParentsList
-   in maybe
-        (Right classesWithParents)
-        (Left . printf "Class %s is defined more than once")
-        (findFirstDuplicate $ (.name) <$> NE.toList classesList)
-
-findFirstDuplicate :: (Ord a) => [a] -> Maybe a
-findFirstDuplicate = go Set.empty
- where
-  go :: (Ord a) => Set a -> [a] -> Maybe a
-  go _ [] = Nothing
-  go seen (x : xs) =
-    if Set.member x seen
-      then Just x
-      else go (Set.insert x seen) xs
-
-classHierarchyGraph :: NEMap Class Class -> NEMap Class (Set Class)
-classHierarchyGraph classesWithParents =
-  foldl
-    ( \hierarchy (name, parent) ->
-        NEM.insertWith
-          Set.union
-          parent
-          (Set.singleton name)
-          hierarchy
-    )
-    (NEM.singleton "Object" Set.empty)
-    (NEM.toList classesWithParents)
-
-classHierarchyTree :: NEMap Class (Set Class) -> Either (NonEmpty Class) (Tree Class)
-classHierarchyTree = dagToTree . (Set.toList <$>)
-
-typecheckSExpr :: Context -> SExpr ExtraInfo -> Either String Type
-typecheckSExpr context (extraInfo@ExtraInfo{typeName, endLine} :< se) = case se of
-  SEIdentifier iid -> do
-    let maybeVariableType :: Maybe Type
-        maybeVariableType = (context ^. #identifierTypes) M.!? iid
-     in maybeToEither
-          ( printf
-              "Unbound variable %s"
-              iid
-          )
-          maybeVariableType
-  SEAssignment aid abody -> do
-    let maybeVariableType :: Maybe Type
-        maybeVariableType = (context ^. #identifierTypes) M.!? aid
-    variableType <-
-      maybeToEither
+typecheckSExpr :: SExpr ExtraInfo -> StateT Context (Either String) (Type, SExpr ExtraInfo)
+typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
+  context <- get
+  case sexpr of
+    SEIdentifier iid -> do
+      let maybeVariableType :: Maybe Type
+          maybeVariableType = (context ^. #identifierTypes) M.!? iid
+      t <-
+        lift $
+          maybeToEither
+            ( printf
+                "Unbound variable %s"
+                iid
+            )
+            maybeVariableType
+      pure $ s & extra . #typeName <?~ t
+    SEAssignment aid abody -> do
+      let maybeVariableType :: Maybe Type
+          maybeVariableType = (context ^. #identifierTypes) M.!? aid
+      variableType <-
+        lift $
+          maybeToEither
+            ( printf
+                "Unbound variable %s"
+                aid
+            )
+            maybeVariableType
+      (bodyType, typedBody) <- typecheckSExpr abody
+      early
+        (subtype (context ^. #classHierarchy) bodyType variableType)
+        (printf "%s is not a subtype of %s" bodyType variableType)
+      pure $
+        s
+          & _unwrap . #_SEAssignment . _2 .~ typedBody
+          & extra . #typeName <?~ bodyType
+    SEBool bbool -> do
+      pure $ s & extra . #typeName <?~ "Bool"
+    SEInteger iint -> do
+      pure $ s & extra . #typeName <?~ "Int"
+    SEString sstring -> do
+      pure $ s & extra . #typeName <?~ "String"
+    SENew t -> do
+      let t' :: Type
+          t'
+            | t == "SELF_TYPE" = context ^. #currentClass
+            | otherwise = t
+      pure $ s & extra . #typeName <?~ t'
+    SEMethodCall mcallee Nothing mname marguments -> do
+      (calleeType, typedCallee) <- typecheckSExpr mcallee
+      (argumentTypes, typedArguments) <- unzip <$> traverse typecheckSExpr marguments
+      -- BUG: :clueless:?
+      let realCalleeType
+            | calleeType == context ^. #currentClass = context ^. #currentClass
+            | otherwise = calleeType
+      methodType <-
+        let maybeMethodType :: Maybe (NonEmpty Type)
+            maybeMethodType = (context ^. #methodTypes) M.!? (realCalleeType, mname)
+         in lift $
+              maybeToEither
+                ( printf
+                    "No such method '%s' for class '%s'"
+                    mname
+                    (context ^. #currentClass)
+                )
+                maybeMethodType
+      let (methodArgumentTypes, methodReturnType) = splitLast methodType
+      traverse_
+        ( \(argumentType, methodArgumentType) ->
+            early
+              (subtype (context ^. #classHierarchy) argumentType methodArgumentType)
+              (printf "%s is not a subtype of %s" argumentType methodArgumentType)
+        )
+        $ zip argumentTypes methodArgumentTypes
+      let returnType
+            | methodReturnType == "SELF_TYPE" = calleeType
+            | otherwise = methodReturnType
+      pure $
+        s
+          & _unwrap . #_SEMethodCall . _1 .~ typedCallee
+          & _unwrap . #_SEMethodCall . _4 .~ typedArguments
+          & extra . #typeName <?~ returnType
+    SEMethodCall mcallee (Just mtype) mname marguments -> do
+      (calleeType, typedCallee) <- typecheckSExpr mcallee
+      (argumentTypes, typedArguments) <- unzip <$> traverse typecheckSExpr marguments
+      early
+        (subtype (context ^. #classHierarchy) calleeType mtype)
         ( printf
-            "Unbound variable %s"
-            aid
+            "%s is not a subtype of %s"
+            calleeType
+            mtype
         )
-        maybeVariableType
-    bodyType <- typecheckSExpr context abody
-    early
-      (subtype (context ^. #classHierarchy) bodyType variableType)
-      (printf "%s is not a subtype of %s" bodyType variableType)
-    pure $ bodyType
-  SEBool bbool -> do
-    pure $ "Bool"
-  SEInteger iint -> do
-    pure $ "Int"
-  SEString sstring -> do
-    pure $ "String"
-  SENew t -> do
-    pure $ t'
-   where
-    t' :: Type
-    t'
-      | t == "SELF_TYPE" = context ^. #currentClass
-      | otherwise = t
-  SEMethodCall mcallee Nothing mname marguments -> do
-    calleeType <- typecheckSExpr context mcallee
-    argumentTypes <- traverse (typecheckSExpr context) marguments
-    -- BUG: :clueless:?
-    let realCalleeType
-          | calleeType == context ^. #currentClass = context ^. #currentClass
-          | otherwise = calleeType
-    methodType <-
-      let maybeMethodType :: Maybe (NonEmpty Type)
-          maybeMethodType = (context ^. #methodTypes) M.!? (realCalleeType, mname)
-       in maybeToEither
-            ( printf
-                "No such method '%s' for class '%s'"
-                mname
-                (context ^. #currentClass)
-            )
-            maybeMethodType
-    let (methodArgumentTypes, methodReturnType) = splitLast methodType
-    traverse_
-      ( \(argumentType, methodArgumentType) ->
-          early
-            (subtype (context ^. #classHierarchy) argumentType methodArgumentType)
-            (printf "%s is not a subtype of %s" argumentType methodArgumentType)
-      )
-      $ zip argumentTypes methodArgumentTypes
-    let returnType
-          | methodReturnType == "SELF_TYPE" = calleeType
-          | otherwise = methodReturnType
-    pure $ returnType
-  SEMethodCall mcallee (Just mtype) mname marguments -> do
-    calleeType <- typecheckSExpr context mcallee
-    argumentTypes <- traverse (typecheckSExpr context) marguments
-    early
-      (subtype (context ^. #classHierarchy) calleeType mtype)
-      ( printf
-          "%s is not a subtype of %s"
-          calleeType
-          mtype
-      )
-    methodType <-
-      let maybeMethodType :: Maybe (NonEmpty Type)
-          maybeMethodType = (context ^. #methodTypes) M.!? (calleeType, mname)
-       in maybeToEither
-            ( printf
-                "No such method '%s' for class '%s'"
-                mname
-                (context ^. #currentClass)
-            )
-            maybeMethodType
-    let (methodArgumentTypes, methodReturnType) = splitLast methodType
-    traverse_
-      ( \(argumentType, methodArgumentType) ->
-          early
-            (subtype (context ^. #classHierarchy) argumentType methodArgumentType)
-            (printf "%s is not a subtype of %s" argumentType methodArgumentType)
-      )
-      $ zip argumentTypes methodArgumentTypes
-    let returnType
-          | methodReturnType == "SELF_TYPE" = calleeType
-          | otherwise = methodReturnType
-    pure $ returnType
-  SEIfThenElse e₁ e₂ e₃ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    te₃ <- typecheckSExpr context e₃
-    early
-      (te₁ == "Bool")
-      ( printf
-          "Prost na gyz, predikata ti ne e predikat, a %s"
-          te₁
-      )
-    pure $ lca (context ^. #classHierarchy) te₂ te₃
-  SEBlock bexpressions -> do
-    expressionTypes <- traverse (typecheckSExpr context) bexpressions
-    let lastExpressionType = NE.last expressionTypes
-    pure $ lastExpressionType
-  SELetIn (binding :| bindings) lbody -> do
-    let SBinding _ btype bidentifier bbody = binding
-    let realBindingType
-          | btype == "SELF_TYPE" = context ^. #currentClass
-          | otherwise = btype
-    let letBody = case NE.nonEmpty bindings of
-          Nothing -> lbody
-          Just bindings' -> extraInfo :< SELetIn bindings' lbody
-    case bbody of
-      Just bindingBody -> do
-        bindingBodyType <- typecheckSExpr context bindingBody
-        early
-          (subtype (context ^. #classHierarchy) bindingBodyType realBindingType)
-          ( printf
-              "%s is not a subtype of %s"
-              bindingBodyType
-              realBindingType
-          )
-        letBodyType <-
-          typecheckSExpr
-            ( context
-                & #identifierTypes %~ M.insert bidentifier realBindingType
-            )
-            letBody
-        pure $ letBodyType
-      Nothing -> do
-        letBodyType <-
-          typecheckSExpr
-            ( context
-                & #identifierTypes %~ M.insert bidentifier realBindingType
-            )
-            letBody
-        pure $ letBodyType
-  SECase cexpr cprongs -> do
-    caseExprType <- typecheckSExpr context cexpr
-    prongTypes <-
-      traverse
-        ( \(SCaseProng _ pidenifier ptype pbody) ->
-            typecheckSExpr
-              ( context
-                  & #identifierTypes %~ M.insert pidenifier ptype
-              )
-              pbody
+      methodType <-
+        let maybeMethodType :: Maybe (NonEmpty Type)
+            maybeMethodType = (context ^. #methodTypes) M.!? (calleeType, mname)
+         in lift $
+              maybeToEither
+                ( printf
+                    "No such method '%s' for class '%s'"
+                    mname
+                    (context ^. #currentClass)
+                )
+                maybeMethodType
+      let (methodArgumentTypes, methodReturnType) = splitLast methodType
+      traverse_
+        ( \(argumentType, methodArgumentType) ->
+            early
+              (subtype (context ^. #classHierarchy) argumentType methodArgumentType)
+              (printf "%s is not a subtype of %s" argumentType methodArgumentType)
         )
-        cprongs
-    -- TODO: Foldable1 foldl1 (from base-4.18.0)
-    pure $ foldl1 (lca (context ^. #classHierarchy)) $ NE.toList prongTypes
-  SEWhile e₁ e₂ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    early
-      (te₁ == "Bool")
-      ( printf
-          "Prost na gyz, predikata ti ne e predikat, a %s"
-          te₁
-      )
-    pure $ "Object"
-  SEIsVoid e₁ -> do
-    te₁ <- typecheckSExpr context e₁
-    pure $ "Bool"
-  SENot e₁ -> do
-    te₁ <- typecheckSExpr context e₁
-    early
-      (te₁ == "Bool")
-      ( printf
-          "Prost na gyz, tva pred not-a ne e Bool, a %s"
-          te₁
-      )
-    pure $ "Bool"
-  SELt e₁ e₂ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    early
-      (te₁ == "Bool")
-      ( printf
-          "Prost na gyz, tva vlqvo ot < not-a ne e Int, a %s"
-          te₁
-      )
-    early
-      (te₂ == "Bool")
-      ( printf
-          "Prost na gyz, tva vdqsno ot < not-a ne e Int, a %s"
-          te₂
-      )
-    pure $ "Bool"
-  SELte e₁ e₂ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    early
-      (te₁ == "Bool")
-      ( printf
-          "Prost na gyz, tva vlqvo ot <= not-a ne e Int, a %s"
-          te₁
-      )
-    early
-      (te₂ == "Bool")
-      ( printf
-          "Prost na gyz, tva vdqsno ot <= not-a ne e Int, a %s"
-          te₂
-      )
-    pure $ "Bool"
-  SETilde e₁ -> do
-    te₁ <- typecheckSExpr context e₁
-    early
-      (te₁ == "Int")
-      ( printf
-          "Prost na gyz, tva sled ~ ne e Int, a %s"
-          te₁
-      )
-    pure $ "Int"
-  SEPlus e₁ e₂ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    early
-      (te₁ == "Int")
-      ( printf
-          "Prost na gyz, tva vlqvo ot + not-a ne e Int, a %s"
-          te₁
-      )
-    early
-      (te₂ == "Int")
-      ( printf
-          "Prost na gyz, tva vdqsno ot + not-a ne e Int, a %s"
-          te₂
-      )
-    pure $ "Bool"
-  SEMinus e₁ e₂ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    early
-      (te₁ == "Int")
-      ( printf
-          "Prost na gyz, tva vlqvo ot - not-a ne e Int, a %s"
-          te₁
-      )
-    early
-      (te₂ == "Int")
-      ( printf
-          "Prost na gyz, tva vdqsno ot - not-a ne e Int, a %s"
-          te₂
-      )
-    pure $ "Bool"
-  SETimes e₁ e₂ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    early
-      (te₁ == "Int")
-      ( printf
-          "Prost na gyz, tva vlqvo ot * not-a ne e Int, a %s"
-          te₁
-      )
-    early
-      (te₂ == "Int")
-      ( printf
-          "Prost na gyz, tva vdqsno ot * not-a ne e Int, a %s"
-          te₂
-      )
-    pure $ "Bool"
-  SEDivide e₁ e₂ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    early
-      (te₁ == "Int")
-      ( printf
-          "Prost na gyz, tva vlqvo ot / not-a ne e Int, a %s"
-          te₁
-      )
-    early
-      (te₂ == "Int")
-      ( printf
-          "Prost na gyz, tva vdqsno ot / not-a ne e Int, a %s"
-          te₂
-      )
-    pure $ "Bool"
-  SEEquals e₁ e₂ -> do
-    te₁ <- typecheckSExpr context e₁
-    te₂ <- typecheckSExpr context e₂
-    let primitive = (`elem` ["Int", "String", "Bool"])
-    early
-      (primitive te₁ && not (primitive te₂))
-      ( printf
-          "Prost na gyz, ne mojesh da sravnqvash primitivniq tip %s s neprimitivniq tip %s"
-          te₁
-          te₂
-      )
-    early
-      (not (primitive te₁) && primitive te₂)
-      ( printf
-          "Prost na gyz, ne mojesh da sravnqvash neprimitivniq tip %s s primitivniq tip %s"
-          te₁
-          te₂
-      )
-    early
-      (primitive te₁ && primitive te₂)
-      ( printf
-          "Prost na gyz, ne mojesh da sravnqvash razlichnite primitivni tipowe %s i %s"
-          te₁
-          te₂
-      )
-    pure $ "Bool"
-  SEBracketed bexpr -> do
-    typecheckSExpr context bexpr
+        $ zip argumentTypes methodArgumentTypes
+      let returnType
+            | methodReturnType == "SELF_TYPE" = calleeType
+            | otherwise = methodReturnType
+      pure $
+        s
+          & _unwrap . #_SEMethodCall . _1 .~ typedCallee
+          & _unwrap . #_SEMethodCall . _4 .~ typedArguments
+          & extra . #typeName <?~ returnType
+    SEIfThenElse e1 e2 e3 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      (e3t, te3) <- typecheckSExpr e3
+      early
+        (e1t == "Bool")
+        ( printf
+            "Prost na gyz, predikata ti ne e predikat, a %s"
+            e1t
+        )
+      let commonType = lca (context ^. #classHierarchy) e2t e3t
+      pure $
+        s
+          & _unwrap . #_SEIfThenElse . _1 .~ te1
+          & _unwrap . #_SEIfThenElse . _2 .~ te2
+          & _unwrap . #_SEIfThenElse . _3 .~ te3
+          & extra . #typeName <?~ commonType
+    SEBlock bexpressions -> do
+      (expressionTypes, typedExpressions) <- NE.unzip <$> traverse typecheckSExpr bexpressions
+      let lastExpressionType = NE.last expressionTypes
+      pure $
+        s
+          -- & _unwrap . #_SEBlock . _1 .~ typedExpressions
+          & extra . #typeName <?~ lastExpressionType
+    SELetIn (SBinding _ btype bidentifier bbody) lbody -> do
+      let realBindingType
+            | btype == "SELF_TYPE" = context ^. #currentClass
+            | otherwise = btype
+      case bbody of
+        Just bindingBody -> do
+          (bindingBodyType, typedBindingBody) <- typecheckSExpr bindingBody
+          early
+            (subtype (context ^. #classHierarchy) bindingBodyType realBindingType)
+            ( printf
+                "%s is not a subtype of %s"
+                bindingBodyType
+                realBindingType
+            )
+          (letBodyType, typedLetBody) <- do
+            oldContext <- get
+            #identifierTypes %= M.insert bidentifier realBindingType
+            t <- typecheckSExpr lbody
+            put oldContext
+            pure t
+          pure $
+            s
+              & _unwrap . #_SELetIn . _1 . #bbody ?~ typedBindingBody
+              & _unwrap . #_SELetIn . _2 .~ typedLetBody
+              & extra . #typeName <?~ letBodyType
+        Nothing -> do
+          (letBodyType, typedLetBody) <- do
+            oldContext <- get
+            #identifierTypes %= M.insert bidentifier realBindingType
+            t <- typecheckSExpr lbody
+            put oldContext
+            pure t
+          pure $
+            s
+              -- & _unwrap . #_SELetIn . _1 . #bbody .~ Nothing
+              & _unwrap . #_SELetIn . _2 .~ typedLetBody
+              & extra . #typeName <?~ letBodyType
+    SECase cexpr cprongs -> do
+      (caseExprType, typedCaseExpr) <- typecheckSExpr cexpr
+      (prongBodyTypes, typedProngBodies) <-
+        NE.unzip
+          <$> traverse
+            ( \scp@(SCaseProng _ pidenifier ptype pbody) -> do
+                oldContext <- get
+                #identifierTypes %= M.insert pidenifier ptype
+                (bodyType, typedBody) <- typecheckSExpr pbody
+                put oldContext
+                pure $
+                  ( bodyType
+                  , scp
+                      & #pbody .~ typedBody
+                  )
+            )
+            cprongs
+      -- TODO: Foldable1 foldl1 (from base-4.18.0)
+      let commonType = foldl1 (lca (context ^. #classHierarchy)) $ NE.toList prongBodyTypes
+      pure $
+        s
+          & _unwrap . #_SECase . _2 .~ typedProngBodies
+          & extra . #typeName <?~ commonType
+    SEWhile e1 e2 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      early
+        (e1t == "Bool")
+        ( printf
+            "Prost na gyz, predikata ti ne e predikat, a %s"
+            e1t
+        )
+      pure $
+        s
+          & _unwrap . #_SEWhile . _1 .~ te1
+          & _unwrap . #_SEWhile . _2 .~ te2
+          & extra . #typeName <?~ "Object"
+    SEIsVoid e1 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      pure $
+        s
+          & _unwrap . #_SEIsVoid .~ te1
+          & extra . #typeName <?~ "Bool"
+    SENot e1 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      early
+        (e1t == "Bool")
+        ( printf
+            "Prost na gyz, tva pred not-a ne e Bool, a %s"
+            e1t
+        )
+      pure $
+        s
+          & _unwrap . #_SENot .~ te1
+          & extra . #typeName <?~ "Bool"
+    SELt e1 e2 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      early
+        (e1t == "Bool")
+        ( printf
+            "Prost na gyz, tva vlqvo ot < not-a ne e Int, a %s"
+            e1t
+        )
+      early
+        (e2t == "Bool")
+        ( printf
+            "Prost na gyz, tva vdqsno ot < not-a ne e Int, a %s"
+            e2t
+        )
+      pure $
+        s
+          & _unwrap . #_SELt . _1 .~ te1
+          & _unwrap . #_SELt . _2 .~ te2
+          & extra . #typeName <?~ "Bool"
+    SELte e1 e2 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      early
+        (e1t == "Bool")
+        ( printf
+            "Prost na gyz, tva vlqvo ot <= not-a ne e Int, a %s"
+            e1t
+        )
+      early
+        (e2t == "Bool")
+        ( printf
+            "Prost na gyz, tva vdqsno ot <= not-a ne e Int, a %s"
+            e2t
+        )
+      pure $
+        s
+          & _unwrap . #_SELte . _1 .~ te1
+          & _unwrap . #_SELte . _2 .~ te2
+          & extra . #typeName <?~ "Bool"
+    SETilde e1 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      early
+        (e1t == "Int")
+        ( printf
+            "Prost na gyz, tva sled ~ ne e Int, a %s"
+            e1t
+        )
+      pure $
+        s
+          & _unwrap . #_SETilde .~ te1
+          & extra . #typeName <?~ "Int"
+    SEPlus e1 e2 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      early
+        (e1t == "Int")
+        ( printf
+            "Prost na gyz, tva vlqvo ot + not-a ne e Int, a %s"
+            e1t
+        )
+      early
+        (e2t == "Int")
+        ( printf
+            "Prost na gyz, tva vdqsno ot + not-a ne e Int, a %s"
+            e2t
+        )
+      pure $
+        s
+          & _unwrap . #_SEPlus . _1 .~ te1
+          & _unwrap . #_SEPlus . _2 .~ te2
+          & extra . #typeName <?~ "Int"
+    SEMinus e1 e2 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      early
+        (e1t == "Int")
+        ( printf
+            "Prost na gyz, tva vlqvo ot - not-a ne e Int, a %s"
+            e1t
+        )
+      early
+        (e2t == "Int")
+        ( printf
+            "Prost na gyz, tva vdqsno ot - not-a ne e Int, a %s"
+            e2t
+        )
+      pure $
+        s
+          & _unwrap . #_SEMinus . _1 .~ te1
+          & _unwrap . #_SEMinus . _2 .~ te2
+          & extra . #typeName <?~ "Int"
+    SETimes e1 e2 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      early
+        (e1t == "Int")
+        ( printf
+            "Prost na gyz, tva vlqvo ot * not-a ne e Int, a %s"
+            e1t
+        )
+      early
+        (e2t == "Int")
+        ( printf
+            "Prost na gyz, tva vdqsno ot * not-a ne e Int, a %s"
+            e2t
+        )
+      pure $
+        s
+          & _unwrap . #_SETimes . _1 .~ te1
+          & _unwrap . #_SETimes . _2 .~ te2
+          & extra . #typeName <?~ "Int"
+    SEDivide e1 e2 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      early
+        (e1t == "Int")
+        ( printf
+            "Prost na gyz, tva vlqvo ot / not-a ne e Int, a %s"
+            e1t
+        )
+      early
+        (e2t == "Int")
+        ( printf
+            "Prost na gyz, tva vdqsno ot / not-a ne e Int, a %s"
+            e2t
+        )
+      pure $
+        s
+          & _unwrap . #_SEDivide . _1 .~ te1
+          & _unwrap . #_SEDivide . _2 .~ te2
+          & extra . #typeName <?~ "Int"
+    SEEquals e1 e2 -> do
+      (e1t, te1) <- typecheckSExpr e1
+      (e2t, te2) <- typecheckSExpr e2
+      let primitive = (`elem` ["Int", "String", "Bool"])
+      early
+        (primitive e1t && not (primitive e2t))
+        ( printf
+            "Prost na gyz, ne mojesh da sravnqvash primitivniq tip %s s neprimitivniq tip %s"
+            e1t
+            e2t
+        )
+      early
+        (not (primitive e1t) && primitive e2t)
+        ( printf
+            "Prost na gyz, ne mojesh da sravnqvash neprimitivniq tip %s s primitivniq tip %s"
+            e1t
+            e2t
+        )
+      early
+        (primitive e1t && primitive e2t)
+        ( printf
+            "Prost na gyz, ne mojesh da sravnqvash razlichnite primitivni tipowe %s i %s"
+            e1t
+            e2t
+        )
+      pure $
+        s
+          & _unwrap . #_SEEquals . _1 .~ te1
+          & _unwrap . #_SEEquals . _2 .~ te2
+          & extra . #typeName <?~ "Bool"
+    SEBracketed bexpr -> do
+      (exprType, typedExpr) <- typecheckSExpr bexpr
+      pure $
+        s
+          & _unwrap . #_SEBracketed .~ typedExpr
+          & extra . #typeName <?~ exprType
 
-typecheckFeature :: Context -> SFeature ExtraInfo -> Either String Type
-typecheckFeature context = \case
-  SFeatureMember{fbinding = SBinding{bidentifier, btype, bbody = Just bbody}} -> do
-    methodType <-
-      let maybeMemberType :: Maybe Type
-          maybeMemberType = (context ^. #identifierTypes) M.!? bidentifier
-       in maybeToEither
-            ( printf
-                "No such member '%s' for class '%s'"
-                bidentifier
-                (context ^. #currentClass)
-            )
-            maybeMemberType
-    bodyType <- typecheckSExpr (context & #identifierTypes %~ M.insert "self" (context ^. #currentClass)) bbody
-    early
-      (subtype (context ^. #classHierarchy) bodyType methodType)
-      ( printf
-          "%s is not a subtype of %s"
-          bodyType
-          methodType
-      )
-    pure $ methodType
-  SFeatureMember{fbinding = SBinding{bidentifier, btype, bbody = Nothing}} -> do
-    methodType <-
-      let maybeMemberType :: Maybe Type
-          maybeMemberType = (context ^. #identifierTypes) M.!? bidentifier
-       in maybeToEither
-            ( printf
-                "No such member '%s' for class '%s'"
-                bidentifier
-                (context ^. #currentClass)
-            )
-            maybeMemberType
-    pure $ methodType
-  SFeatureMethod{ftype, fidentifier, fformals, fbody} -> do
-    let (argumentNames, argumentTypes) = unzip $ (\SFormal{fidentifier, ftype} -> (fidentifier, ftype)) <$> fformals
-    methodType <-
-      let maybeMethodType :: Maybe (NonEmpty Type)
-          maybeMethodType = (context ^. #methodTypes) M.!? (context ^. #currentClass, fidentifier)
-       in maybeToEither
-            ( printf
-                "No such method '%s' for class '%s'"
-                fidentifier
-                (context ^. #currentClass)
-            )
-            maybeMethodType
-    let (methodArgumentTypes, methodReturnType) = splitLast methodType
-    traverse_
-      ( \(argumentType, methodArgumentType) ->
-          early
-            (subtype (context ^. #classHierarchy) argumentType methodArgumentType)
-            (printf "%s is not a subtype of %s" argumentType methodArgumentType)
-      )
-      $ zip argumentTypes methodArgumentTypes
-    bodyType <-
-      typecheckSExpr
-        ( context
-            & #identifierTypes %~ M.insert "self" (context ^. #currentClass)
-            & #identifierTypes %~ (\o -> foldr (uncurry M.insert) o (zip argumentNames methodArgumentTypes))
-            & #identifierTypes
-              %~ ( \o ->
-                    o
-                      `M.union` ( extendO
-                                    ((.pclasses) =<< (context ^. #programs))
-                                    (context ^. #classParentHirearchy)
-                                    NEM.! (context ^. #currentClass)
-                                )
-                 )
+typecheckSFeature :: SFeature ExtraInfo -> StateT Context (Either String) (Type, SFeature ExtraInfo)
+typecheckSFeature sfeature = do
+  context <- get
+  case sfeature of
+    SFeatureMember{fbinding = SBinding{bidentifier, btype, bbody = Just bbody}} -> do
+      methodType <-
+        let maybeMemberType :: Maybe Type
+            maybeMemberType = (context ^. #identifierTypes) M.!? bidentifier
+         in lift $
+              maybeToEither
+                ( printf
+                    "No such member '%s' for class '%s'"
+                    bidentifier
+                    (context ^. #currentClass)
+                )
+                maybeMemberType
+      (bodyType, typedBody) <- do
+        oldContext <- get
+        #identifierTypes %= M.insert "self" (context ^. #currentClass)
+        t <- typecheckSExpr bbody
+        put oldContext
+        pure t
+      early
+        (subtype (context ^. #classHierarchy) bodyType methodType)
+        ( printf
+            "%s is not a subtype of %s"
+            bodyType
+            methodType
         )
-        fbody
-    let realMethodType
-          | methodReturnType == "SELF_TYPE" = context ^. #currentClass
-          | otherwise = methodReturnType
-    early
-      (subtype (context ^. #classHierarchy) bodyType realMethodType)
-      (printf "%s is not a subtype of %s" bodyType realMethodType)
-    pure $ methodReturnType
+      pure $
+        sfeature
+          & #_SFeatureMember . _2 . #bbody ?~ typedBody
+          & #_SFeatureMember . _2 . #btype .~ bodyType
+          & #extraInfo . #typeName <?~ methodType
+    SFeatureMember{fbinding = SBinding{bidentifier, btype, bbody = Nothing}} -> do
+      methodType <-
+        let maybeMemberType :: Maybe Type
+            maybeMemberType = (context ^. #identifierTypes) M.!? bidentifier
+         in lift $
+              maybeToEither
+                ( printf
+                    "No such member '%s' for class '%s'"
+                    bidentifier
+                    (context ^. #currentClass)
+                )
+                maybeMemberType
+      pure $
+        sfeature
+          & #extraInfo . #typeName <?~ methodType
+    SFeatureMethod{ftype, fidentifier, fformals, fbody} -> do
+      let (argumentNames, argumentTypes) = unzip $ (\SFormal{fidentifier, ftype} -> (fidentifier, ftype)) <$> fformals
+      methodType <-
+        let maybeMethodType :: Maybe (NonEmpty Type)
+            maybeMethodType = (context ^. #methodTypes) M.!? (context ^. #currentClass, fidentifier)
+         in lift $
+              maybeToEither
+                ( printf
+                    "No such method '%s' for class '%s'"
+                    fidentifier
+                    (context ^. #currentClass)
+                )
+                maybeMethodType
+      let (methodArgumentTypes, methodReturnType) = splitLast methodType
+      traverse_
+        ( \(argumentType, methodArgumentType) ->
+            early
+              (subtype (context ^. #classHierarchy) argumentType methodArgumentType)
+              (printf "%s is not a subtype of %s" argumentType methodArgumentType)
+        )
+        $ zip argumentTypes methodArgumentTypes
+      (bodyType, typedBody) <- do
+        oldContext <- get
+        #identifierTypes %= M.insert "self" (context ^. #currentClass)
+        #identifierTypes %= (\o -> foldr (uncurry M.insert) o (zip argumentNames methodArgumentTypes))
+        #identifierTypes
+          %= ( \o ->
+                o
+                  `M.union` ( extendO
+                                ((.pclasses) =<< (context ^. #programs))
+                                (context ^. #classParentHirearchy)
+                                NEM.! (context ^. #currentClass)
+                            )
+             )
+        (bodyType, typedBody) <- typecheckSExpr fbody
+        put oldContext
+        pure (bodyType, typedBody)
+      let realMethodType
+            | methodReturnType == "SELF_TYPE" = context ^. #currentClass
+            | otherwise = methodReturnType
+      early
+        (subtype (context ^. #classHierarchy) bodyType realMethodType)
+        (printf "%s is not a subtype of %s" bodyType realMethodType)
+      pure $
+        sfeature
+          & #_SFeatureMethod . _4 <.~ methodReturnType
 
-early :: Bool -> String -> Either String ()
-early True msg = Left msg
-early False _ = Right ()
+typecheckSClass :: SClass ExtraInfo -> StateT Context (Either String) (SClass ExtraInfo)
+typecheckSClass sclass = do
+  context <- get
+  (featureTypes, typedFeatures) <- NE.unzip <$> traverse typecheckSFeature (sclass ^. #features)
+  pure $
+    sclass
+      & #features .~ typedFeatures
+
+typecheckSProgram :: SProgram ExtraInfo -> StateT Context (Either String) (SProgram ExtraInfo)
+typecheckSProgram sprogram = do
+  context <- get
+  typedClasses <-
+    traverse
+      ( \pclass -> do
+          oldContext <- get
+          #currentClass .= pclass ^. #name
+          typedClass <- typecheckSClass pclass
+          put oldContext
+          pure typedClass
+      )
+      (sprogram ^. #pclasses)
+  pure $
+    sprogram
+      & #pclasses .~ typedClasses
+
+early :: (MonadTrans m) => Bool -> String -> m (Either String) ()
+early True msg = lift $ Left msg
+early False _ = lift $ Right ()
 
 maybeLeft :: Maybe a -> Either a ()
 maybeLeft (Just a) = Left a

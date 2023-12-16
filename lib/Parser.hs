@@ -402,7 +402,14 @@ letBindingParser = do
   _ <- optional whitespace
   lbody <- expressionParser
   endLine <- view lineNumberLens <$> getParserState
-  pure $ ExtraInfo{endLine, typeName = Nothing} :< SELetIn{lbindings, lbody}
+  pure $
+    foldr
+      ( \lbinding acc ->
+          ExtraInfo{endLine, typeName = Nothing}
+            :< SELetIn{lbinding, lbody = acc}
+      )
+      lbody
+      lbindings
 
 caseParser :: Parser (SExpr ExtraInfo)
 caseParser = do

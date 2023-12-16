@@ -75,3 +75,6 @@ test_Lexer = test "Haskool Lexer" ".out" "./test/data/01" lexAndPrettyPrint
 
 test_Parser :: Spec
 test_Parser = test "Haskool Parser" ".out" "./test/data/02" lexParseAndPrettyPrint
+
+-- test_Typist :: Spec
+-- test_Typist = test "Haskool Typist" ".out" "./test/data/03" lexParseTypeAndPrettyPrint
