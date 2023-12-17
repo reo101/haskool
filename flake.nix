@@ -98,6 +98,7 @@
             "comonad"
             "comonad-extras"
             "containers"
+            "deriving-compat"
             "directory"
             "extra"
             "filepath"

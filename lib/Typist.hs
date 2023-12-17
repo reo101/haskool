@@ -13,7 +13,11 @@ module Typist (
   typecheckSExpr,
 ) where
 
-import Control.Comonad.Cofree (Cofree (..), _unwrap)
+import Control.Comonad.Cofree (
+  Cofree (..),
+  _extract,
+  _unwrap,
+ )
 import Control.Lens (
   Field1 (_1),
   Field2 (_2),
@@ -26,8 +30,9 @@ import Control.Lens (
   (<.~),
   (<?~),
   (?~),
-  (^.),
+  (^.), Field5 (_5),
  )
+import Control.Lens.Extras (is)
 import Control.Monad.State (MonadState (..), MonadTrans (..), StateT)
 import Data.Either.Extra (maybeToEither)
 import Data.Foldable (traverse_)
@@ -52,7 +57,6 @@ import Parser.Types (
   SFeature (..),
   SFormal (..),
   SProgram (..),
-  extra,
  )
 import Text.Printf (printf)
 import Typist.Types (Context, Type)
@@ -66,6 +70,8 @@ import Utils.Algorithms (
   lca,
   subtype,
  )
+import Debug.Trace (traceShowM)
+import Utils.Pretty.Parser (prettyprintSClass, prettyPrintSExpr, prettyPrintSFeature)
 
 typecheckSExpr :: SExpr ExtraInfo -> StateT Context (Either String) (Type, SExpr ExtraInfo)
 typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
@@ -82,7 +88,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
                 iid
             )
             maybeVariableType
-      pure $ s & extra . #typeName <?~ t
+      pure $ s & _extract . #typeName <?~ t
     SEAssignment aid abody -> do
       let maybeVariableType :: Maybe Type
           maybeVariableType = (context ^. #identifierTypes) M.!? aid
@@ -101,19 +107,19 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
       pure $
         s
           & _unwrap . #_SEAssignment . _2 .~ typedBody
-          & extra . #typeName <?~ bodyType
+          & _extract . #typeName <?~ bodyType
     SEBool bbool -> do
-      pure $ s & extra . #typeName <?~ "Bool"
+      pure $ s & _extract . #typeName <?~ "Bool"
     SEInteger iint -> do
-      pure $ s & extra . #typeName <?~ "Int"
+      pure $ s & _extract . #typeName <?~ "Int"
     SEString sstring -> do
-      pure $ s & extra . #typeName <?~ "String"
+      pure $ s & _extract . #typeName <?~ "String"
     SENew t -> do
       let t' :: Type
           t'
             | t == "SELF_TYPE" = context ^. #currentClass
             | otherwise = t
-      pure $ s & extra . #typeName <?~ t'
+      pure $ s & _extract . #typeName <?~ t'
     SEMethodCall mcallee Nothing mname marguments -> do
       (calleeType, typedCallee) <- typecheckSExpr mcallee
       (argumentTypes, typedArguments) <- unzip <$> traverse typecheckSExpr marguments
@@ -147,7 +153,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SEMethodCall . _1 .~ typedCallee
           & _unwrap . #_SEMethodCall . _4 .~ typedArguments
-          & extra . #typeName <?~ returnType
+          & _extract . #typeName <?~ returnType
     SEMethodCall mcallee (Just mtype) mname marguments -> do
       (calleeType, typedCallee) <- typecheckSExpr mcallee
       (argumentTypes, typedArguments) <- unzip <$> traverse typecheckSExpr marguments
@@ -184,7 +190,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SEMethodCall . _1 .~ typedCallee
           & _unwrap . #_SEMethodCall . _4 .~ typedArguments
-          & extra . #typeName <?~ returnType
+          & _extract . #typeName <?~ returnType
     SEIfThenElse e1 e2 e3 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -201,15 +207,15 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
           & _unwrap . #_SEIfThenElse . _1 .~ te1
           & _unwrap . #_SEIfThenElse . _2 .~ te2
           & _unwrap . #_SEIfThenElse . _3 .~ te3
-          & extra . #typeName <?~ commonType
+          & _extract . #typeName <?~ commonType
     SEBlock bexpressions -> do
       (expressionTypes, typedExpressions) <- NE.unzip <$> traverse typecheckSExpr bexpressions
       let lastExpressionType = NE.last expressionTypes
       pure $
         s
-          -- & _unwrap . #_SEBlock . _1 .~ typedExpressions
-          & extra . #typeName <?~ lastExpressionType
-    SELetIn (SBinding _ btype bidentifier bbody) lbody -> do
+          & _unwrap . #_SEBlock .~ typedExpressions
+          & _extract . #typeName <?~ lastExpressionType
+    SELetIn (SBinding ei bidentifier btype bbody) lbody -> do
       let realBindingType
             | btype == "SELF_TYPE" = context ^. #currentClass
             | otherwise = btype
@@ -232,8 +238,9 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
           pure $
             s
               & _unwrap . #_SELetIn . _1 . #bbody ?~ typedBindingBody
+              & _unwrap . #_SELetIn . _1 . #extraInfo . #typeName ?~ bindingBodyType
               & _unwrap . #_SELetIn . _2 .~ typedLetBody
-              & extra . #typeName <?~ letBodyType
+              & _extract . #typeName <?~ letBodyType
         Nothing -> do
           (letBodyType, typedLetBody) <- do
             oldContext <- get
@@ -245,7 +252,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
             s
               -- & _unwrap . #_SELetIn . _1 . #bbody .~ Nothing
               & _unwrap . #_SELetIn . _2 .~ typedLetBody
-              & extra . #typeName <?~ letBodyType
+              & _extract . #typeName <?~ letBodyType
     SECase cexpr cprongs -> do
       (caseExprType, typedCaseExpr) <- typecheckSExpr cexpr
       (prongBodyTypes, typedProngBodies) <-
@@ -268,7 +275,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
       pure $
         s
           & _unwrap . #_SECase . _2 .~ typedProngBodies
-          & extra . #typeName <?~ commonType
+          & _extract . #typeName <?~ commonType
     SEWhile e1 e2 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -282,13 +289,13 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SEWhile . _1 .~ te1
           & _unwrap . #_SEWhile . _2 .~ te2
-          & extra . #typeName <?~ "Object"
+          & _extract . #typeName <?~ "Object"
     SEIsVoid e1 -> do
       (e1t, te1) <- typecheckSExpr e1
       pure $
         s
           & _unwrap . #_SEIsVoid .~ te1
-          & extra . #typeName <?~ "Bool"
+          & _extract . #typeName <?~ "Bool"
     SENot e1 -> do
       (e1t, te1) <- typecheckSExpr e1
       early
@@ -300,7 +307,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
       pure $
         s
           & _unwrap . #_SENot .~ te1
-          & extra . #typeName <?~ "Bool"
+          & _extract . #typeName <?~ "Bool"
     SELt e1 e2 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -320,7 +327,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SELt . _1 .~ te1
           & _unwrap . #_SELt . _2 .~ te2
-          & extra . #typeName <?~ "Bool"
+          & _extract . #typeName <?~ "Bool"
     SELte e1 e2 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -340,7 +347,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SELte . _1 .~ te1
           & _unwrap . #_SELte . _2 .~ te2
-          & extra . #typeName <?~ "Bool"
+          & _extract . #typeName <?~ "Bool"
     SETilde e1 -> do
       (e1t, te1) <- typecheckSExpr e1
       early
@@ -352,7 +359,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
       pure $
         s
           & _unwrap . #_SETilde .~ te1
-          & extra . #typeName <?~ "Int"
+          & _extract . #typeName <?~ "Int"
     SEPlus e1 e2 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -372,7 +379,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SEPlus . _1 .~ te1
           & _unwrap . #_SEPlus . _2 .~ te2
-          & extra . #typeName <?~ "Int"
+          & _extract . #typeName <?~ "Int"
     SEMinus e1 e2 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -392,7 +399,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SEMinus . _1 .~ te1
           & _unwrap . #_SEMinus . _2 .~ te2
-          & extra . #typeName <?~ "Int"
+          & _extract . #typeName <?~ "Int"
     SETimes e1 e2 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -412,7 +419,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SETimes . _1 .~ te1
           & _unwrap . #_SETimes . _2 .~ te2
-          & extra . #typeName <?~ "Int"
+          & _extract . #typeName <?~ "Int"
     SEDivide e1 e2 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -432,7 +439,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SEDivide . _1 .~ te1
           & _unwrap . #_SEDivide . _2 .~ te2
-          & extra . #typeName <?~ "Int"
+          & _extract . #typeName <?~ "Int"
     SEEquals e1 e2 -> do
       (e1t, te1) <- typecheckSExpr e1
       (e2t, te2) <- typecheckSExpr e2
@@ -462,13 +469,13 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         s
           & _unwrap . #_SEEquals . _1 .~ te1
           & _unwrap . #_SEEquals . _2 .~ te2
-          & extra . #typeName <?~ "Bool"
+          & _extract . #typeName <?~ "Bool"
     SEBracketed bexpr -> do
       (exprType, typedExpr) <- typecheckSExpr bexpr
       pure $
         s
           & _unwrap . #_SEBracketed .~ typedExpr
-          & extra . #typeName <?~ exprType
+          & _extract . #typeName <?~ exprType
 
 typecheckSFeature :: SFeature ExtraInfo -> StateT Context (Either String) (Type, SFeature ExtraInfo)
 typecheckSFeature sfeature = do
@@ -562,8 +569,11 @@ typecheckSFeature sfeature = do
       early
         (subtype (context ^. #classHierarchy) bodyType realMethodType)
         (printf "%s is not a subtype of %s" bodyType realMethodType)
+      -- traceShowExpr $ fbody
+      -- traceShowExpr $ typedBody
       pure $
         sfeature
+          & #_SFeatureMethod . _5 .~ typedBody
           & #_SFeatureMethod . _4 <.~ methodReturnType
 
 typecheckSClass :: SClass ExtraInfo -> StateT Context (Either String) (SClass ExtraInfo)
@@ -587,13 +597,24 @@ typecheckSProgram sprogram = do
           pure typedClass
       )
       (sprogram ^. #pclasses)
+  -- traceShowClasses $ sprogram ^. #pclasses
+  -- traceShowClasses $ typedClasses
   pure $
     sprogram
       & #pclasses .~ typedClasses
 
+traceShowFeatures :: Applicative f => SFeature ExtraInfo -> f ()
+traceShowFeatures = traverse_ traceShowM . prettyPrintSFeature
+
+traceShowClasses :: (Foldable t, Applicative f) => t (SClass ExtraInfo) -> f ()
+traceShowClasses = traverse_ (traceShowM . prettyprintSClass "kek")
+
+traceShowExpr :: Applicative f => SExpr ExtraInfo -> f ()
+traceShowExpr = traceShowM . prettyPrintSExpr
+
 early :: (MonadTrans m) => Bool -> String -> m (Either String) ()
-early True msg = lift $ Left msg
-early False _ = lift $ Right ()
+early False msg = lift $ Left msg
+early True _ = lift $ Right ()
 
 maybeLeft :: Maybe a -> Either a ()
 maybeLeft (Just a) = Left a

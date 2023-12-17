@@ -8,15 +8,17 @@ module Parser.Types (
   SFormal (..),
   SExprF (..),
   SExpr,
-  extra,
 )
 where
 
 import Control.Comonad.Cofree (Cofree (..))
 import Control.Lens (Lens', lens)
+import Data.Functor.Classes (Show1 (..))
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+
+-- import Text.Show.Deriving (deriveShow2, makeLiftShowsPrec)
 
 -- NOTE: Strings in COOL may only be up to 1024 characters
 -- Consider wrapping the SConstant type in Either
@@ -29,11 +31,7 @@ data ExtraInfo where
     , typeName :: Maybe T.Text
     } ->
     ExtraInfo
-  deriving stock (Generic)
-
--- extra :: Lens' (SExpr ExtraInfo) ExtraInfo
-extra :: Lens' (Cofree f a) a
-extra = lens (\(extraInfo :< _) -> extraInfo) (\(_ :< a) extraInfo -> extraInfo :< a)
+  deriving stock (Generic, Show)
 
 data SBinding e where
   SBinding ::
@@ -43,7 +41,7 @@ data SBinding e where
     , bbody :: Maybe (SExpr e)
     } ->
     SBinding e
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
 
 data SCaseProng e where
   SCaseProng ::
@@ -53,7 +51,7 @@ data SCaseProng e where
     , pbody :: SExpr e
     } ->
     SCaseProng e
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
 
 data SProgram e where
   SProgram ::
@@ -61,7 +59,7 @@ data SProgram e where
     , pclasses :: NonEmpty (SClass e)
     } ->
     SProgram e
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
 
 data SClass e where
   SClass ::
@@ -71,7 +69,7 @@ data SClass e where
     , features :: [SFeature e]
     } ->
     SClass e
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
 
 data SFeature e where
   SFeatureMember ::
@@ -87,7 +85,7 @@ data SFeature e where
     , fbody :: SExpr e
     } ->
     SFeature e
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
 
 data SFormal e where
   SFormal ::
@@ -96,7 +94,9 @@ data SFormal e where
     , ftype :: T.Text
     } ->
     SFormal e
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
+
+type SExpr e = Cofree (SExprF e) e
 
 data SExprF e r where
   SEAssignment ::
@@ -209,4 +209,7 @@ data SExprF e r where
     SExprF e r
   deriving stock (Generic, Functor)
 
-type SExpr e = Cofree (SExprF e) e
+instance (Show e) => Show1 (SExprF e) where
+  liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> SExprF e a -> ShowS
+  -- liftShowsPrec = $(makeLiftShowsPrec ''SExprF)
+  liftShowsPrec = undefined

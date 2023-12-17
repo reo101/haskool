@@ -11,14 +11,17 @@ module Utils.Algorithms (
   classHierarchyGraph,
   allClassesWithParents,
   findFirstDuplicate,
+  extractInfo,
 ) where
 
 import Control.Arrow (Arrow (..))
-import Control.Lens ((^.))
+import Control.Comonad.Traced (Endo (Endo, appEndo))
+import Control.Lens (Field1 (_1), Field2 (_2), Field3 (_3), Lens', LensLike', Traversable1 (traverse1), over, to, toNonEmptyOf, traversed, traversed1, (&), (.~), (^.), (^..))
 import Data.Generics.Labels ()
 import Data.List ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE (filter, toList, zip)
+import Data.List.NonEmpty.Extra ((|:))
 import Data.List.NonEmpty.Extra qualified as NE (fromList, head)
 import Data.Map qualified as M (empty, fromList, union)
 import Data.Map.NonEmpty (NEMap)
@@ -32,12 +35,14 @@ import Data.Map.NonEmpty qualified as NEM (
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Tuple.Extra (both)
+import Data.Tuple.Extra (both, dupe)
+import Debug.Trace (trace, traceShow, traceShowId)
 import Parser.Types (
   ExtraInfo (..),
   SBinding (..),
   SClass (..),
   SFeature (..),
+  SFormal,
   SProgram (..),
  )
 import Text.Printf (printf)
@@ -47,21 +52,26 @@ import Typist.Types (
   Identifier,
   O,
   Path,
-  Tree (Tree),
+  Tree (..),
   Type,
  )
 
 -- >>> dagToTree $ NEM.fromList $ NE.fromList [("1", ["3"]), ("2", ["3"]), ("3", ["4", "5"]), ("4", []), ("5", ["5"])]
 -- Left ["5"]
 
--- | Detect cycles in a graph (has to have only one connected component)
+{- | Detect cycles in a graph (has to have only one connected component)
 dagToTree :: forall a. (Ord a, Show a) => Graph a -> Either (NonEmpty a) (Tree a)
+-}
+dagToTree :: Graph Class -> Either (NonEmpty Class) (Tree Class)
 dagToTree graph = relaxNode [] start
  where
-  start :: a
-  start = fst $ NE.head $ NEM.toList graph
+  -- start :: a
+  start :: Class
+  -- start = fst $ NE.head $ NEM.toList graph
+  start = "Object"
 
-  relaxNode :: Path a -> a -> Either (NonEmpty a) (Tree a)
+  -- relaxNode :: Path a -> a -> Either (NonEmpty a) (Tree a)
+  relaxNode :: Path Class -> Class -> Either (NonEmpty Class) (Tree Class)
   relaxNode path curr =
     if
         -- Found a cycle
@@ -74,7 +84,8 @@ dagToTree graph = relaxNode [] start
         | otherwise ->
             Right $ Tree curr []
    where
-    edges :: [a]
+    -- edges :: [a]
+    edges :: [Class]
     edges =
       fromMaybe
         (error $ printf "Incomplete tree (undefined node %s)" (show curr))
@@ -86,7 +97,8 @@ dagToTree graph = relaxNode [] start
 commonPrefix :: (Eq a) => ([a], [a]) -> [a]
 commonPrefix (l1, l2) = fst <$> takeWhile (uncurry (==)) (zip l1 l2)
 
-lca :: forall a. (Eq a) => Tree a -> a -> a -> a
+lca :: forall a. (Eq a, Show a) => Tree a -> a -> a -> a
+-- lca tree x y = trace ("IVE BEEN CALLED WITH " ++ show (tree, x, y)) $ last $ traceShow (tree, x, y) $ commonPrefix $ traceShowId $ both (explore [] tree) (x, y)
 lca tree x y = last $ commonPrefix $ both (explore [] tree) (x, y)
  where
   explore :: Path a -> Tree a -> a -> Path a
@@ -98,7 +110,30 @@ lca tree x y = last $ commonPrefix $ both (explore [] tree) (x, y)
 -- >>> subtype (Tree 1 [Tree 2 [], Tree 3 [Tree 4 [], Tree 5 []]]) 1 1
 -- True
 
-subtype :: (Eq a) => Tree a -> a -> a -> Bool
+lesnoTree :: Tree String
+lesnoTree =
+  Tree
+    { node = "Object"
+    , neighbours =
+        [ Tree{node = "Bool", neighbours = []}
+        , Tree
+            { node = "IO"
+            , neighbours =
+                [ Tree
+                    { node = "Main"
+                    , neighbours = []
+                    }
+                ]
+            }
+        , Tree{node = "Int", neighbours = []}
+        , Tree{node = "String", neighbours = []}
+        ]
+    }
+
+-- >>> subtype lesnoTree "Int" "Int"
+-- True
+
+subtype :: (Eq a, Show a) => Tree a -> a -> a -> Bool
 subtype tree x y = lca tree x y == y
 
 extendO :: NonEmpty (SClass ExtraInfo) -> NEMap Class Class -> NEMap Class O
@@ -152,14 +187,78 @@ classHierarchyGraph :: NEMap Class Class -> NEMap Class (Set Class)
 classHierarchyGraph classesWithParents =
   foldl
     ( \hierarchy (name, parent) ->
-        NEM.insertWith
-          Set.union
-          parent
-          (Set.singleton name)
+        applyAll
+          [ -- [name] -> parent
+            NEM.insertWith
+              Set.union
+              parent
+              (Set.singleton name)
+          , -- [] -> name
+            NEM.insertWith
+              Set.union
+              name
+              Set.empty
+          ]
           hierarchy
     )
     (NEM.singleton "Object" Set.empty)
     (NEM.toList classesWithParents)
+ where
+  applyAll :: [a -> a] -> a -> a
+  applyAll = appEndo . mconcat . fmap Endo
 
 classHierarchyTree :: NEMap Class (Set Class) -> Either (NonEmpty Class) (Tree Class)
 classHierarchyTree = dagToTree . (Set.toList <$>)
+
+extractInfo :: NonEmpty (SProgram ExtraInfo) -> [((Type, Identifier), NonEmpty Type)]
+extractInfo programs =
+  programs
+    ^.. traversed
+      . #pclasses
+      . traversed
+      . to getClassInfo
+      . traversed
+ where
+  getClassInfo :: SClass ExtraInfo -> [((Type, Identifier), NonEmpty Type)]
+  getClassInfo sClass =
+    let className =
+          sClass
+            ^. #name
+        methodInfo =
+          sClass
+            ^.. #features
+              . traversed
+              . #_SFeatureMethod
+              . to getMethodInfo
+     in first (className,) <$> methodInfo
+
+  getMethodInfo :: (a, Identifier, [SFormal ExtraInfo], Type, c) -> (Identifier, NonEmpty Type)
+  getMethodInfo (_, methodName, methodFormals, methodReturnType, _) =
+    let formalType =
+          methodFormals
+            ^.. traversed
+              . #ftype
+     in (methodName, formalType |: methodReturnType)
+
+-- (/\) ::
+--   (Functor f) =>
+--   -- | Lens' c a
+--   ((a -> (a, a)) -> (c -> (a, c))) ->
+--   -- | Lens' c b
+--   ((b -> (b, b)) -> (c -> (b, c))) ->
+--   -- | Lens' c (a, b)
+--   (((a, b) -> f (a, b)) -> (c -> f c))
+(/\) :: LensLike' ((,) a) c a -> LensLike' ((,) b) c b -> Lens' c (a, b)
+(/\) lens1 lens2 f c0 =
+  let (a, _) = lens1 dupe c0
+      (b, _) = lens2 dupe c0
+      fab = f (a, b)
+   in fmap
+        ( \(a, b) ->
+            let (_, c1) = lens1 (,a) c0
+                (_, c2) = lens2 (,b) c1
+             in c2
+        )
+        fab
+
+infixl 7 /\

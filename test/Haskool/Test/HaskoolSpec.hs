@@ -36,6 +36,9 @@ import Utils.Pretty.Lexer (
 import Utils.Pretty.Parser (
   lexParseAndPrettyPrint,
  )
+import Utils.Pretty.Typist (
+  lexParseTypeAndPrettyPrint,
+ )
 import Utils.Pretty (
   wrapAndIntercalate,
  )
@@ -43,7 +46,9 @@ import Utils.Pretty (
 spec :: Spec
 spec = do
   -- test_Lexer
-  test_Parser
+  -- test_Parser
+  test_Typist
+  -- test_Typist_custom
   pure ()
 
 test :: String -> String -> FilePath -> ((FilePath, T.Text) -> T.Text) -> Spec
@@ -55,8 +60,8 @@ test name testInfix directory prepare = describe name do
           let result = prepare (sourceFile, sourceCode)
           (result `shouldSatisfy` (`elem` outputs))
             -- TODO: remove (haha, was funny)
-            `catch` \(ErrorCall _) -> do
-              pure ()
+            -- `catch` \(ErrorCall _) -> do
+            --   pure ()
             --
             `catch` \(HUnitFailure loc (Reason msg)) -> do
               throw $
@@ -76,5 +81,8 @@ test_Lexer = test "Haskool Lexer" ".out" "./test/data/01" lexAndPrettyPrint
 test_Parser :: Spec
 test_Parser = test "Haskool Parser" ".out" "./test/data/02" lexParseAndPrettyPrint
 
--- test_Typist :: Spec
--- test_Typist = test "Haskool Typist" ".out" "./test/data/03" lexParseTypeAndPrettyPrint
+test_Typist :: Spec
+test_Typist = test "Haskool Typist" ".out" "./test/data/03" lexParseTypeAndPrettyPrint
+
+test_Typist_custom :: Spec
+test_Typist_custom = test "Haskool Typist" ".out" "./test/data/03_mine" lexParseTypeAndPrettyPrint

@@ -13,7 +13,6 @@ module Typist.Types (
   Context (..),
 ) where
 
-import Control.Lens (makeLenses)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Map.NonEmpty (NEMap)
@@ -29,8 +28,6 @@ data Tree a = Tree
   , neighbours :: [Tree a]
   }
   deriving stock (Generic, Show)
-
-makeLenses ''Tree
 
 type Type = T.Text
 type Class = T.Text
