@@ -107,13 +107,73 @@ defaultProgram =
       , SClass
           { parent = Just "Object"
           , name = "String"
-          , features = []
+          , features =
+              [ SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "length"
+                  , fformals =
+                      []
+                  , ftype = "Int"
+                  , fbody = undefined
+                  }
+              ]
           , extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
           }
       , SClass
           { parent = Just "Object"
           , name = "IO"
-          , features = []
+          , features =
+              [ SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "out_string"
+                  , fformals =
+                      [ SFormal
+                          { extraInfo =
+                              ExtraInfo
+                                { typeName = Just "Object"
+                                , endLine = 1
+                                }
+                          , fidentifier = "arg"
+                          , ftype = "String"
+                          }
+                      ]
+                  , ftype = "SELF_TYPE"
+                  , fbody = undefined
+                  }
+              , SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "out_int"
+                  , fformals =
+                      [ SFormal
+                          { extraInfo =
+                              ExtraInfo
+                                { typeName = Just "Object"
+                                , endLine = 1
+                                }
+                          , fidentifier = "arg"
+                          , ftype = "Int"
+                          }
+                      ]
+                  , ftype = "SELF_TYPE"
+                  , fbody = undefined
+                  }
+              , SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "in_string"
+                  , fformals =
+                      []
+                  , ftype = "String"
+                  , fbody = undefined
+                  }
+              , SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "in_int"
+                  , fformals =
+                      []
+                  , ftype = "Int"
+                  , fbody = undefined
+                  }
+              ]
           , extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
           }
       ]

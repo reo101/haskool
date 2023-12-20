@@ -12,6 +12,7 @@ module Utils.Algorithms (
   allClassesWithParents,
   findFirstDuplicate,
   extractInfo,
+  findInM,
 ) where
 
 import Control.Arrow (Arrow (..))
@@ -23,7 +24,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE (filter, toList, zip)
 import Data.List.NonEmpty.Extra ((|:))
 import Data.List.NonEmpty.Extra qualified as NE (fromList, head)
-import Data.Map qualified as M (empty, fromList, union)
+import Data.Map qualified as M (empty, fromList, union, (!?))
 import Data.Map.NonEmpty (NEMap)
 import Data.Map.NonEmpty qualified as NEM (
   fromList,
@@ -35,6 +36,7 @@ import Data.Map.NonEmpty qualified as NEM (
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text qualified as T (pack)
 import Data.Tuple.Extra (both, dupe)
 import Debug.Trace (trace, traceShow, traceShowId)
 import Parser.Types (
@@ -53,7 +55,7 @@ import Typist.Types (
   O,
   Path,
   Tree (..),
-  Type,
+  Type, M,
  )
 
 -- >>> dagToTree $ NEM.fromList $ NE.fromList [("1", ["3"]), ("2", ["3"]), ("3", ["4", "5"]), ("4", []), ("5", ["5"])]
@@ -97,10 +99,11 @@ dagToTree graph = relaxNode [] start
 commonPrefix :: (Eq a) => ([a], [a]) -> [a]
 commonPrefix (l1, l2) = fst <$> takeWhile (uncurry (==)) (zip l1 l2)
 
-lca :: forall a. (Eq a, Show a) => Tree a -> a -> a -> a
--- lca tree x y = trace ("IVE BEEN CALLED WITH " ++ show (tree, x, y)) $ last $ traceShow (tree, x, y) $ commonPrefix $ traceShowId $ both (explore [] tree) (x, y)
-lca tree x y = last $ commonPrefix $ both (explore [] tree) (x, y)
+lca :: forall a. (Show a, Eq a) => Tree a -> a -> a -> a
+lca tree x y = trace ("IVE BEEN CALLED WITH " ++ show (tree, x, y)) $ last $ traceShow (tree, x, y) $ commonPrefix $ traceShowId $ both (explore [] tree) (x, y)
  where
+  -- lca tree x y = last $ commonPrefix $ both (explore [] tree) (x, y)
+
   explore :: Path a -> Tree a -> a -> Path a
   explore ans tree seek =
     if seek == tree ^. #node
@@ -135,6 +138,13 @@ lesnoTree =
 
 subtype :: (Eq a, Show a) => Tree a -> a -> a -> Bool
 subtype tree x y = lca tree x y == y
+
+-- >>> SFeatureMember "" (SBinding "" (pack "a") (pack "Int") Mothing)
+
+-- >>> T.pack "abc"
+
+-- >>> NE.fromList [SClass "" (pack "A") (Just $ pack "Object") [SFeatureMember "" (SBinding "" (pack "a") (pack "Int") Nothing)], SClass "" (pack "B") (Just $ pack "A") [SFeatureMember "" (SBinding "" (pack "b") (pack "Int") Nothing)], SClass "" (pack "C") (Just $ pack "B") [SFeatureMember "" (SBinding "" (pack "c") (pack "Int") Nothing)]]
+-- <stderr>: hPutChar: invalid argument (cannot encode character '\8216')
 
 extendO :: NonEmpty (SClass ExtraInfo) -> NEMap Class Class -> NEMap Class O
 extendO classes dg = NEM.fromList $ ((.name) *** handler) <$> NE.zip classes inheritancePaths
@@ -239,6 +249,15 @@ extractInfo programs =
             ^.. traversed
               . #ftype
      in (methodName, formalType |: methodReturnType)
+
+findInM :: M -> NEMap Class Class -> (Class, Identifier) -> Maybe (NonEmpty Type)
+findInM m dg (c, i) =
+  trace (printf "lajno %s lajno %s lajno %s" (show m) (show dg) (show (c, i))) $
+  case m M.!? (c, i) of
+    Just types -> Just types
+    Nothing -> case dg NEM.!? c of
+      Just c' -> findInM m dg (c', i)
+      Nothing -> Nothing
 
 -- (/\) ::
 --   (Functor f) =>
