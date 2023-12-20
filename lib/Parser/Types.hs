@@ -31,7 +31,7 @@ data ExtraInfo where
     , typeName :: Maybe T.Text
     } ->
     ExtraInfo
-  deriving stock (Generic, Show)
+  deriving stock (Generic, Show, Eq)
 
 data SBinding e where
   SBinding ::
@@ -94,7 +94,7 @@ data SFormal e where
     , ftype :: T.Text
     } ->
     SFormal e
-  deriving stock (Generic, Show)
+  deriving stock (Generic, Show, Eq)
 
 type SExpr e = Cofree (SExprF e) e
 

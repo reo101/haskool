@@ -75,6 +75,9 @@ import Utils.Algorithms (
   findInM,
  )
 import Utils.Pretty.Parser (prettyPrintSExpr, prettyPrintSFeature, prettyprintSClass)
+import Data.List (nub)
+import Data.Text (pack)
+import Data.Text (Text)
 
 typecheckSExpr :: SExpr ExtraInfo -> StateT Context (Either String) (Type, SExpr ExtraInfo)
 typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
@@ -541,7 +544,12 @@ typecheckSFeature sfeature = do
       let (argumentNames, argumentTypes) = unzip $ (\SFormal{fidentifier, ftype} -> (fidentifier, ftype)) <$> fformals
       methodType <-
         let maybeMethodType :: Maybe (NonEmpty Type)
-            maybeMethodType = (context ^. #methodTypes) M.!? (context ^. #currentClass, fidentifier)
+            maybeMethodType = if length fformals == length (nub fformals)
+            then 
+              (context ^. #methodTypes) M.!? (context ^. #currentClass, fidentifier) 
+            else 
+              Nothing
+
          in lift $
               maybeToEither
                 ( printf
@@ -590,8 +598,15 @@ typecheckSFeature sfeature = do
           & #_SFeatureMethod . _5 .~ typedBody
           & #_SFeatureMethod . _4 <.~ methodReturnType
 
+hasParent :: Maybe Text -> Bool
+hasParent mb = case mb of
+  Just cidentifier -> cidentifier == pack "SELF_TYPE"
+  Nothing -> False
+
 typecheckSClass :: SClass ExtraInfo -> StateT Context (Either String) (SClass ExtraInfo)
-typecheckSClass sclass = do
+typecheckSClass sclass@SClass{parent} = do
+  
+  early (not $ hasParent parent) (printf "No class can inherit SELF_TYPE")
   context <- get
   (featureTypes, typedFeatures) <- NE.unzip <$> traverse typecheckSFeature (sclass ^. #features)
   pure $
