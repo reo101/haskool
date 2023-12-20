@@ -24,6 +24,7 @@ import Control.Lens (
   Field3 (_3),
   Field4 (_4),
   Field5 (_5),
+  traversed,
   (%=),
   (&),
   (.=),
@@ -32,12 +33,13 @@ import Control.Lens (
   (<?~),
   (?~),
   (^.),
+  (^..),
  )
-import Control.Lens.Extras (is)
 import Control.Monad.State (MonadState (..), MonadTrans (..), StateT)
 import Data.Either.Extra (maybeToEither)
 import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
+import Data.List (nub)
 import Data.List.NonEmpty as NE (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE (last, toList, unzip)
 import Data.Map qualified as M (
@@ -48,7 +50,7 @@ import Data.Map qualified as M (
 import Data.Map.NonEmpty qualified as NEM (
   (!),
  )
-import Data.Text (append)
+import Data.Text qualified as T
 import Debug.Trace (trace, traceM, traceShow, traceShowM)
 import Parser.Types (
   ExtraInfo (..),
@@ -70,14 +72,11 @@ import Utils.Algorithms (
   dagToTree,
   extendO,
   findFirstDuplicate,
+  findInM,
   lca,
   subtype,
-  findInM,
  )
 import Utils.Pretty.Parser (prettyPrintSExpr, prettyPrintSFeature, prettyprintSClass)
-import Data.List (nub)
-import Data.Text (pack)
-import Data.Text (Text)
 
 typecheckSExpr :: SExpr ExtraInfo -> StateT Context (Either String) (Type, SExpr ExtraInfo)
 typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
@@ -541,15 +540,13 @@ typecheckSFeature sfeature = do
         sfeature
           & #extraInfo . #typeName <?~ btype
     SFeatureMethod{ftype, fidentifier, fformals, fbody} -> do
+      early
+        (length fformals /= length (nub (fformals ^.. traversed . #fidentifier)))
+        (printf "Formal names for function %s should be unique" fidentifier)
       let (argumentNames, argumentTypes) = unzip $ (\SFormal{fidentifier, ftype} -> (fidentifier, ftype)) <$> fformals
       methodType <-
         let maybeMethodType :: Maybe (NonEmpty Type)
-            maybeMethodType = if length fformals == length (nub fformals)
-            then 
-              (context ^. #methodTypes) M.!? (context ^. #currentClass, fidentifier) 
-            else 
-              Nothing
-
+            maybeMethodType = (context ^. #methodTypes) M.!? (context ^. #currentClass, fidentifier)
          in lift $
               maybeToEither
                 ( printf
@@ -598,14 +595,13 @@ typecheckSFeature sfeature = do
           & #_SFeatureMethod . _5 .~ typedBody
           & #_SFeatureMethod . _4 <.~ methodReturnType
 
-hasParent :: Maybe Text -> Bool
+hasParent :: Maybe T.Text -> Bool
 hasParent mb = case mb of
-  Just cidentifier -> cidentifier == pack "SELF_TYPE"
+  Just cidentifier -> cidentifier == T.pack "SELF_TYPE"
   Nothing -> False
 
 typecheckSClass :: SClass ExtraInfo -> StateT Context (Either String) (SClass ExtraInfo)
 typecheckSClass sclass@SClass{parent} = do
-  
   early (not $ hasParent parent) (printf "No class can inherit SELF_TYPE")
   context <- get
   (featureTypes, typedFeatures) <- NE.unzip <$> traverse typecheckSFeature (sclass ^. #features)
@@ -641,13 +637,13 @@ traceShowClasses = traverse_ (traceShowM . prettyprintSClass "kek")
 traceShowExpr :: (Applicative f) => SExpr ExtraInfo -> f ()
 traceShowExpr = traceShowM . prettyPrintSExpr
 
-early :: (MonadTrans m) => Bool -> String -> m (Either String) ()
-early False msg = lift $ Left msg
+early :: Bool -> String -> StateT Context (Either String) ()
+early False msg = #errors %= (T.pack msg :)
 early True _ = lift $ Right ()
 
-maybeLeft :: Maybe a -> Either a ()
-maybeLeft (Just a) = Left a
-maybeLeft Nothing = Right ()
+maybeLeft :: Maybe T.Text -> StateT Context (Either a) ()
+maybeLeft (Just msg) = #errors %= (msg :)
+maybeLeft Nothing = lift $ Right ()
 
 splitLast :: NonEmpty a -> ([a], a)
 splitLast (x :| []) = ([], x)

@@ -49,5 +49,6 @@ data Context = Context
   , classHierarchy :: Tree Type
   , programs :: NonEmpty (SProgram ExtraInfo)
   , classParentHirearchy :: NEMap Class Class
+  , errors :: [T.Text]
   }
   deriving stock (Generic)

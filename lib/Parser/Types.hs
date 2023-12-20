@@ -94,7 +94,7 @@ data SFormal e where
     , ftype :: T.Text
     } ->
     SFormal e
-  deriving stock (Generic, Show, Eq)
+  deriving stock (Generic, Show)
 
 type SExpr e = Cofree (SExprF e) e
 

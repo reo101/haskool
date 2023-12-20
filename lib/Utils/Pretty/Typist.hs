@@ -13,7 +13,7 @@ module Utils.Pretty.Typist (
 import Control.Comonad.Cofree (Cofree (..))
 import Control.Lens ((^.))
 import Control.Lens.Internal.Deque qualified as M
-import Control.Monad.State (evalStateT)
+import Control.Monad.State (evalStateT, StateT (runStateT))
 import Data.Either.Extra (fromRight')
 import Data.Generics.Labels ()
 import Data.IntMap qualified as M
@@ -69,9 +69,7 @@ import Utils.Pretty.Parser (
   prettyPrintSProgram,
   prettyprintSClass,
  )
-
-prg :: T.Text
-prg = "class Main inherits IO{ main(): Object {{ let x:Int <- 5 in x; }}; };"
+import Data.Bifunctor (first)
 
 -- >>> lexParseTypeAndPrettyPrint $ (,) "" prg
 -- "\n"
@@ -208,6 +206,8 @@ lexParseTypeAndPrettyPrint (sourceFile, sourceCode) =
         Left classesCycle -> Left $ printf "Class cycle found: %s" $ show classesCycle
         Right tree -> Right tree
 
+    let errors = []
+
     pure $
       Context
         { identifierTypes
@@ -216,14 +216,17 @@ lexParseTypeAndPrettyPrint (sourceFile, sourceCode) =
         , classHierarchy
         , programs
         , classParentHirearchy
+        , errors
         }
 
-  typedAst :: Either String (SProgram ExtraInfo)
+  typedAst :: Either [T.Text] (SProgram ExtraInfo)
   typedAst = do
-    res <- evalStateT (typecheckSProgram ast) =<< initialContext
-    pure $ res
+    (res, finalContext) <- first (pure . T.pack) $ (runStateT (typecheckSProgram ast) =<< initialContext)
+    case finalContext ^. #errors of
+      [] -> pure $ res
+      errors -> Left $ errors
 
   prettyLines :: [T.Text]
   prettyLines = case typedAst of
-    Left nasra -> pure $ T.pack nasra
+    Left nasra -> nasra
     Right good -> prettyPrintSProgram sourceFile good
