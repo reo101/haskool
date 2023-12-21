@@ -176,8 +176,9 @@ allClassesWithParents :: NonEmpty (SProgram ExtraInfo) -> Either String (NEMap C
 allClassesWithParents programs =
   let classesList = programs >>= (.pclasses)
       sclassToclassWithParent (SClass{name, parent}) = (name, fromMaybe "Object" parent)
-      classesWithParentsList = sclassToclassWithParent <$> classesList
-      classesWithParents = NEM.fromList classesWithParentsList
+      classesWithParentsList = NE.filter (\pair -> pair /= ("Object", "Object")) (sclassToclassWithParent <$> classesList)
+      -- TODO: Ugly and ruins type guarantees, find workaround
+      classesWithParents = NEM.fromList $ NE.fromList classesWithParentsList
    in maybe
         (Right classesWithParents)
         (Left . printf "Class %s is defined more than once")

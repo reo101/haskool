@@ -25,6 +25,7 @@ import Control.Lens (
   Field4 (_4),
   Field5 (_5),
   traversed,
+  use,
   (%=),
   (&),
   (.=),
@@ -33,7 +34,7 @@ import Control.Lens (
   (<?~),
   (?~),
   (^.),
-  (^..), use,
+  (^..),
  )
 import Control.Monad.State (MonadState (..), MonadTrans (..), StateT)
 import Data.Either.Extra (maybeToEither)
@@ -46,6 +47,7 @@ import Data.Map qualified as M (
   insert,
   union,
   (!?),
+  member,
  )
 import Data.Map.NonEmpty qualified as NEM (
   (!),
@@ -506,6 +508,8 @@ typecheckSFeature sfeature = do
       --              (context ^. #currentClass)
       --          )
       --          maybeMemberType
+      early (not $ bidentifier `M.member` (context ^. #identifierTypes))
+        (printf "Attribute %s is an attribute of an inheriting class" bidentifier)
       (bodyType, typedBody) <- do
         oldContext <- get
         oldIdentifierTypes <- use #identifierTypes
@@ -537,11 +541,13 @@ typecheckSFeature sfeature = do
       --              (context ^. #currentClass)
       --          )
       --          maybeMemberType
+      early (not $ bidentifier `M.member` (context ^. #identifierTypes))
+        (printf "Attribute %s is an attribute of an inheriting class" bidentifier)
       pure $
         sfeature
           & #extraInfo . #typeName <?~ btype
     SFeatureMethod{ftype, fidentifier, fformals, fbody} -> do
-      --early
+      -- early
       --  (length fformals /= length (nub (fformals ^.. traversed . #fidentifier)))
       --  (printf "Formal names for function %s should be unique" fidentifier)
       let (argumentNames, argumentTypes) = unzip $ (\SFormal{fidentifier, ftype} -> (fidentifier, ftype)) <$> fformals
@@ -612,7 +618,9 @@ typecheckSClass sclass@SClass{parent} = do
       & #features .~ typedFeatures
 
 typecheckSProgram :: SProgram ExtraInfo -> StateT Context (Either String) (SProgram ExtraInfo)
-typecheckSProgram sprogram = do
+typecheckSProgram sprogram@(SProgram{pclasses}) = do
+  -- TODO: Data.List.NonEmpty doesn't have an "elem" or "member" method ???
+  early (not $ "Main" `notElem` NE.toList ((.name) <$> pclasses)) (printf "Class Main not defined")
   context <- get
   typedClasses <-
     traverse
@@ -622,7 +630,7 @@ typecheckSProgram sprogram = do
           typedClass <- typecheckSClass pclass
 
           oldIdentifierTypes <- use #identifierTypes
-          #identifierTypes .=  oldIdentifierTypes
+          #identifierTypes .= oldIdentifierTypes
 
           pure typedClass
       )

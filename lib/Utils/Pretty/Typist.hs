@@ -13,7 +13,8 @@ module Utils.Pretty.Typist (
 import Control.Comonad.Cofree (Cofree (..))
 import Control.Lens ((^.))
 import Control.Lens.Internal.Deque qualified as M
-import Control.Monad.State (evalStateT, StateT (runStateT))
+import Control.Monad.State (StateT (runStateT), evalStateT)
+import Data.Bifunctor (first)
 import Data.Either.Extra (fromRight')
 import Data.Generics.Labels ()
 import Data.IntMap qualified as M
@@ -69,7 +70,6 @@ import Utils.Pretty.Parser (
   prettyPrintSProgram,
   prettyprintSClass,
  )
-import Data.Bifunctor (first)
 
 -- >>> lexParseTypeAndPrettyPrint $ (,) "" prg
 -- "\n"
@@ -91,6 +91,38 @@ defaultProgram =
   pclasses =
     NE.fromList
       [ SClass
+          { -- TODO: Maybe fix later
+            parent = Nothing
+          , name = "Object"
+          , features =
+              [ SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "abort"
+                  , fformals =
+                      []
+                  , ftype = "Object"
+                  , fbody = undefined
+                  }
+              , SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "type_name"
+                  , fformals =
+                      []
+                  , ftype = "String"
+                  , fbody = undefined
+                  }
+              , SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "copy"
+                  , fformals =
+                      []
+                  , ftype = "SELF_TYPE"
+                  , fbody = undefined
+                  }
+              ]
+          , extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+          }
+      , SClass
           { parent = Just "Object"
           , name = "Int"
           , features = []
@@ -111,6 +143,24 @@ defaultProgram =
                   , fidentifier = "length"
                   , fformals =
                       []
+                  , ftype = "Int"
+                  , fbody = undefined
+                  }
+              , SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "concat"
+                  , fformals =
+                      [SFormal{extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}, fidentifier = "arg", ftype = "String"}]
+                  , ftype = "Int"
+                  , fbody = undefined
+                  }
+              , SFeatureMethod
+                  { extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}
+                  , fidentifier = "substr"
+                  , fformals =
+                      [ SFormal{extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}, fidentifier = "arg1", ftype = "Int"}
+                      , SFormal{extraInfo = ExtraInfo{typeName = Nothing, endLine = 1}, fidentifier = "arg2", ftype = "Int"}
+                      ]
                   , ftype = "Int"
                   , fbody = undefined
                   }
@@ -193,7 +243,8 @@ lexParseTypeAndPrettyPrint (sourceFile, sourceCode) =
   initialContext = do
     let programs = NE.fromList [defaultProgram, ast]
     classParentHirearchy <- allClassesWithParents programs
-    -- traceShowM classParentHirearchy
+    traceShowM "ALL CLASSES WITH PARENTS"
+    traceShowM classParentHirearchy
 
     let identifierTypes = Map.empty
     let methodTypes = Map.fromList $ extractInfo $ programs
