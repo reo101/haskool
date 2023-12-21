@@ -33,7 +33,7 @@ import Control.Lens (
   (<?~),
   (?~),
   (^.),
-  (^..),
+  (^..), use,
  )
 import Control.Monad.State (MonadState (..), MonadTrans (..), StateT)
 import Data.Either.Extra (maybeToEither)
@@ -225,9 +225,7 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
           & _unwrap . #_SEBlock .~ typedExpressions
           & _extract . #typeName <?~ lastExpressionType
     SELetIn (SBinding ei bidentifier btype bbody) lbody -> do
-      let realBindingType
-            | btype == "SELF_TYPE" = context ^. #currentClass
-            | otherwise = btype
+      let realBindingType = btype
       case bbody of
         Just bindingBody -> do
           (bindingBodyType, typedBindingBody) <- typecheckSExpr bindingBody
@@ -239,10 +237,10 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
                 realBindingType
             )
           (letBodyType, typedLetBody) <- do
-            oldContext <- get
+            oldIdentifierTypes <- use #identifierTypes
             #identifierTypes %= M.insert bidentifier realBindingType
             t <- typecheckSExpr lbody
-            put oldContext
+            #identifierTypes .= oldIdentifierTypes
             pure t
           pure $
             s
@@ -253,9 +251,10 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
         Nothing -> do
           (letBodyType, typedLetBody) <- do
             oldContext <- get
+            oldIdentifierTypes <- use #identifierTypes
             #identifierTypes %= M.insert bidentifier realBindingType
             t <- typecheckSExpr lbody
-            put oldContext
+            #identifierTypes .= oldIdentifierTypes
             pure t
           pure $
             s
@@ -269,9 +268,10 @@ typecheckSExpr s@(extraInfo@ExtraInfo{typeName, endLine} :< sexpr) = do
           <$> traverse
             ( \scp@(SCaseProng _ pidenifier ptype pbody) -> do
                 oldContext <- get
+                oldIdentifierTypes <- use #identifierTypes
                 #identifierTypes %= M.insert pidenifier ptype
                 (bodyType, typedBody) <- typecheckSExpr pbody
-                put oldContext
+                #identifierTypes .= oldIdentifierTypes
                 pure $
                   ( bodyType
                   , scp
@@ -508,9 +508,10 @@ typecheckSFeature sfeature = do
       --          maybeMemberType
       (bodyType, typedBody) <- do
         oldContext <- get
+        oldIdentifierTypes <- use #identifierTypes
         #identifierTypes %= M.insert "self" (context ^. #currentClass)
         t <- typecheckSExpr bbody
-        put oldContext
+        #identifierTypes .= oldIdentifierTypes
         pure t
       early
         (subtype (context ^. #classHierarchy) (normalize bodyType) (normalize btype))
@@ -540,9 +541,9 @@ typecheckSFeature sfeature = do
         sfeature
           & #extraInfo . #typeName <?~ btype
     SFeatureMethod{ftype, fidentifier, fformals, fbody} -> do
-      early
-        (length fformals /= length (nub (fformals ^.. traversed . #fidentifier)))
-        (printf "Formal names for function %s should be unique" fidentifier)
+      --early
+      --  (length fformals /= length (nub (fformals ^.. traversed . #fidentifier)))
+      --  (printf "Formal names for function %s should be unique" fidentifier)
       let (argumentNames, argumentTypes) = unzip $ (\SFormal{fidentifier, ftype} -> (fidentifier, ftype)) <$> fformals
       methodType <-
         let maybeMethodType :: Maybe (NonEmpty Type)
@@ -579,8 +580,9 @@ typecheckSFeature sfeature = do
                                 NEM.! (context ^. #currentClass)
                             )
              )
+        oldIdentifierTypes <- use #identifierTypes
         (bodyType, typedBody) <- typecheckSExpr fbody
-        put oldContext
+        #identifierTypes .= oldIdentifierTypes
         pure (bodyType, typedBody)
       let realMethodType
             | methodReturnType == "SELF_TYPE" = context ^. #currentClass
@@ -618,7 +620,10 @@ typecheckSProgram sprogram = do
           oldContext <- get
           #currentClass .= pclass ^. #name
           typedClass <- typecheckSClass pclass
-          put oldContext
+
+          oldIdentifierTypes <- use #identifierTypes
+          #identifierTypes .=  oldIdentifierTypes
+
           pure typedClass
       )
       (sprogram ^. #pclasses)
