@@ -45,9 +45,9 @@ import Data.List.NonEmpty as NE (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE (last, toList, unzip)
 import Data.Map qualified as M (
   insert,
+  member,
   union,
   (!?),
-  member,
  )
 import Data.Map.NonEmpty qualified as NEM (
   (!),
@@ -508,7 +508,16 @@ typecheckSFeature sfeature = do
       --              (context ^. #currentClass)
       --          )
       --          maybeMemberType
-      early (not $ bidentifier `M.member` (context ^. #identifierTypes))
+
+      let parent = (NEM.!) (context ^. #classParentHirearchy) (context ^. #currentClass)
+
+      let check = extendO
+                  ((.pclasses) =<< (context ^. #programs))
+                  (context ^. #classParentHirearchy)
+                  NEM.! parent
+
+      early
+        (not $ bidentifier `M.member` check)
         (printf "Attribute %s is an attribute of an inheriting class" bidentifier)
       (bodyType, typedBody) <- do
         oldContext <- get
@@ -541,7 +550,18 @@ typecheckSFeature sfeature = do
       --              (context ^. #currentClass)
       --          )
       --          maybeMemberType
-      early (not $ bidentifier `M.member` (context ^. #identifierTypes))
+      let parent = (NEM.!) (context ^. #classParentHirearchy) (context ^. #currentClass)
+
+      let check = extendO
+                  ((.pclasses) =<< (context ^. #programs))
+                  (context ^. #classParentHirearchy)
+                  NEM.! parent
+
+      early
+        (not $ bidentifier `M.member` check)
+        (printf "Attribute %s is an attribute of an inheriting class" bidentifier)
+      early
+        (not $ bidentifier `M.member` (context ^. #identifierTypes))
         (printf "Attribute %s is an attribute of an inheriting class" bidentifier)
       pure $
         sfeature
